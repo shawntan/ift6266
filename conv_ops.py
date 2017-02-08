@@ -7,7 +7,8 @@ activation = T.nnet.relu
 
 
 def conv_weight_init(output_size, input_size, rfield_size):
-    factor = np.sqrt(6. / (rfield_size**2 * (input_size + output_size)))
+    # factor = np.sqrt(6. / (rfield_size**2 * (input_size + output_size)))
+    factor = 0.05
     return np.asarray(
         np.random.uniform(
            low=-factor, high=factor,
