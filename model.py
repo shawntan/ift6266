@@ -51,7 +51,21 @@ def build(P):
 
 def cost(recon, X):
     true = X[:, :, 16:48, 16:48].dimshuffle(0, 2, 3, 1)
+    batch_size, img_size_1, img_size_2, _ = true.shape
     true = true.flatten()
     recon = recon.dimshuffle(0, 2, 3, 1)
-    recon = recon.reshape((-1, 256))
-    return T.mean(T.nnet.categorical_crossentropy(T.nnet.softmax(recon), true))
+    recon = recon.reshape((batch_size * img_size_1 * img_size_2 * 3, 256))
+    per_colour_loss = T.nnet.categorical_crossentropy(T.nnet.softmax(recon),
+                                                      true)
+    per_colour_loss = per_colour_loss.reshape((batch_size,
+                                               img_size_1, img_size_2, 3))
+    per_image_loss = T.sum(per_colour_loss, axis=(1, 2, 3))
+    return T.mean(per_image_loss)
+
+
+def predict(recon):
+    recon = recon.reshape((recon.shape[0],
+                           3, 256,
+                           recon.shape[2],
+                           recon.shape[3]))
+    return T.argmax(recon, axis=2)

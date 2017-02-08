@@ -16,7 +16,6 @@ if __name__ == "__main__":
     loss = model.cost(inpaint(T.cast(X, 'float32')), X)
     parameters = P.values()
     gradients = T.grad(loss, wrt=parameters)
-
     chunk_X = theano.shared(np.empty((1, 3, 64, 64), dtype=np.int32))
     idx = T.iscalar('idx')
     train = theano.function(
