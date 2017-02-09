@@ -36,10 +36,12 @@ def build_stack(P, conv_filter_counts, conv_filter_sizes,
 
     def extract(X):
         batch_size, feature_size, img_size_1, img_size_2 = X.shape
+        layers = []
         prev_layer = X
         for c in conv_layers:
             prev_layer = c(prev_layer)
-        return prev_layer
+            layers.append(prev_layer)
+        return layers
     return extract
 
 

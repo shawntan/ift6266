@@ -18,7 +18,6 @@ if __name__ == "__main__":
     loss = model.cost(inpaint(T.cast(X, 'float32')), X)
     parameters = P.values()
     pprint(parameters)
-    P.W_upsample_stack_3.set_value(0 * P.W_upsample_stack_3.get_value())
     gradients = updates.clip_deltas(T.grad(loss, wrt=parameters), 5)
     chunk_X = theano.shared(np.empty((1, 3, 64, 64), dtype=np.int32))
     idx = T.iscalar('idx')
@@ -45,4 +44,4 @@ if __name__ == "__main__":
             print "Batch count:", batches
             for i in xrange(batches):
                 print train(i)
-        P.save('model.pkl')
+            P.save('model.pkl')
