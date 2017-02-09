@@ -36,7 +36,7 @@ if __name__ == "__main__":
         stream = data_io.async(stream, queue_size=100)
         return stream
 
-    for epoch in xrange(10):
+    for epoch in xrange(20):
         print "Epoch %d" % epoch
         for chunk in data_stream():
             chunk_X.set_value(chunk)

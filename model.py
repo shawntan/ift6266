@@ -72,7 +72,7 @@ def build(P):
         P, name="inpaint_iterator",
         input_size=32,
         output_size=32,
-        rfield_size=5,
+        rfield_size=3,
     )
 
     output_transform = build_conv_layer(
@@ -97,6 +97,7 @@ def build(P):
     def inpaint(X):
         batch_size, channels, img_size_1, img_size_2 = X.shape
         down_X = T.set_subtensor(X[:, :, 16:48, 16:48], 0)
+        down_X = down_X / 256.
         down_X = downsample[0](down_X)
         down_X = downsample[1](down_X)
         down_X = norm_transform(down_X)
@@ -109,6 +110,10 @@ def build(P):
         fill_X = T.set_subtensor(down_X[:, :, 6:10, 6:12], 0)
         fill_X = inpaint_iterator(fill_X)
         fill_X = T.set_subtensor(down_X[:, :, 7:9, 7:9], 0)
+        fill_X = inpaint_iterator(fill_X)
+        fill_X = inpaint_iterator(fill_X)
+        fill_X = inpaint_iterator(fill_X)
+        fill_X = inpaint_iterator(fill_X)
         fill_X = inpaint_iterator(fill_X)
 
         # batch_size, 32, 8, 8
