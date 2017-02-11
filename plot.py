@@ -25,10 +25,13 @@ if __name__ == "__main__":
         output = fill(chunk)
         break
 
-    fig = plt.figure(figsize=(30, 150))
+    fig = plt.figure(figsize=(20, 5))
+    fig.subplots_adjust(left=0, bottom=0, right=1, top=1,
+                        wspace=None, hspace=None)
 
     def plot(i):
         global chunk
+        i = 19 if i >= 20 else i
         chunk_filled = chunk.copy()
         chunk_temp = chunk.copy()
 
@@ -45,5 +48,5 @@ if __name__ == "__main__":
                               chunk_temp.shape[1] * chunk_temp.shape[2],
                               chunk_temp.shape[3]), interpolation='None')
 
-    anim = FuncAnimation(fig, plot, frames=np.arange(0, 20), interval=200)
+    anim = FuncAnimation(fig, plot, frames=np.arange(0, 30), interval=200)
     anim.save('sample.gif', dpi=80, writer='imagemagick')
