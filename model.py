@@ -1,5 +1,6 @@
 import numpy as np
 import theano.tensor as T
+import theano
 import conv_ops
 import deconv_ops
 import feedforward
@@ -110,20 +111,23 @@ def build(P):
         fill_X = T.set_subtensor(down_X[:, :, 6:10, 6:12], 0)
         fill_X = inpaint_iterator(fill_X)
         fill_X = T.set_subtensor(down_X[:, :, 7:9, 7:9], 0)
-        fill_X = inpaint_iterator(fill_X)
-        fill_X = inpaint_iterator(fill_X)
-        fill_X = inpaint_iterator(fill_X)
-        fill_X = inpaint_iterator(fill_X)
-        fill_X = inpaint_iterator(fill_X)
 
-        # batch_size, 32, 8, 8
-        up_Y = fill_X[:, :, 4:12, 4:12]
-        up_Y = upsample[0](up_Y)
-        up_Y = upsample[1](up_Y)
+        def fill_step(prev_fill):
+            fill = inpaint_iterator(prev_fill)
+            # batch_size, 32, 8, 8
+            up_Y = fill[:, :, 4:12, 4:12]
+            up_Y = upsample[0](up_Y)
+            up_Y = upsample[1](up_Y)
+            output = output_transform(up_Y)
+            return fill, output
 
-        output = output_transform(up_Y)
+        [_, outputs], _ = theano.scan(
+            fill_step,
+            n_steps=20,
+            outputs_info=[fill_X, None],
+        )
 
-        return output
+        return outputs
 
     return inpaint
 
@@ -143,8 +147,8 @@ def cost(recon, X):
 
 
 def predict(recon):
-    recon = recon.reshape((recon.shape[0],
-                           3, 256,
-                           recon.shape[2],
-                           recon.shape[3]))
-    return T.argmax(recon, axis=2)
+    new_recon_shape = T.concatenate([recon.shape[:-3], (3, 256,
+                                                        recon.shape[-2],
+                                                        recon.shape[-1])])
+    recon = recon.reshape(new_recon_shape, ndim=recon.ndim + 1)
+    return T.argmax(recon, axis=-3)

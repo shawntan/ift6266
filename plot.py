@@ -7,6 +7,7 @@ import model
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 
 if __name__ == "__main__":
     P = Parameters()
@@ -23,17 +24,26 @@ if __name__ == "__main__":
     for chunk in stream:
         output = fill(chunk)
         break
-    chunk_filled = chunk.copy()
-    chunk = chunk.transpose(2, 0, 3, 1)
-    chunk = chunk / 256.
 
-    chunk_filled[:, :, 16:48, 16:48] = output
-    chunk_filled = chunk_filled.transpose(2, 0, 3, 1)
-    chunk_filled = chunk_filled / 256.
-    plot_data = np.concatenate((chunk, chunk_filled), axis=0)
+    fig = plt.figure(figsize=(30, 150))
 
-    plt.figure(figsize=(30, 150))
-    plt.imshow(plot_data.reshape(chunk.shape[0] + chunk_filled.shape[0],
-                                 chunk.shape[1] * chunk.shape[2],
-                                 chunk.shape[3]), interpolation='None')
-    plt.savefig('sample.png', bbox_inches='tight')
+    def plot(i):
+        global chunk
+        chunk_filled = chunk.copy()
+        chunk_temp = chunk.copy()
+
+        chunk_temp = chunk_temp.transpose(2, 0, 3, 1)
+        chunk_temp = chunk_temp / 256.
+
+        chunk_filled[:, :, 16:48, 16:48] = output[i]
+        chunk_filled = chunk_filled.transpose(2, 0, 3, 1)
+        chunk_filled = chunk_filled / 256.
+        plot_data = np.concatenate((chunk_temp, chunk_filled), axis=0)
+
+        plt.imshow(
+            plot_data.reshape(chunk_temp.shape[0] + chunk_filled.shape[0],
+                              chunk_temp.shape[1] * chunk_temp.shape[2],
+                              chunk_temp.shape[3]), interpolation='None')
+
+    anim = FuncAnimation(fig, plot, frames=np.arange(0, 20), interval=200)
+    anim.save('sample.gif', dpi=80, writer='imagemagick')

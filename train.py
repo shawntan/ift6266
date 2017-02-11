@@ -15,7 +15,7 @@ if __name__ == "__main__":
     inpaint = model.build(P)
 
     X = T.itensor4('X')
-    loss = model.cost(inpaint(T.cast(X, 'float32')), X)
+    loss = model.cost(inpaint(T.cast(X, 'float32'))[-1], X)
     parameters = P.values()
     pprint(parameters)
     gradients = updates.clip_deltas(T.grad(loss, wrt=parameters), 5)
