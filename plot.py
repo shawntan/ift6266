@@ -8,13 +8,15 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-
+ITERATION_STEPS = 20
 if __name__ == "__main__":
     P = Parameters()
     inpaint = model.build(P)
 
     X = T.itensor4('X')
-    Y = model.predict(inpaint(T.cast(X, 'float32')))
+    Y = model.predict(inpaint(T.cast(X, 'float32'),
+                              training=False,
+                              iteration_steps=ITERATION_STEPS))
     fill = theano.function(inputs=[X], outputs=Y)
     P.load('model.pkl')
     stream = data_io.stream_file("data/val2014.pkl.gz")
@@ -31,7 +33,7 @@ if __name__ == "__main__":
 
     def plot(i):
         global chunk
-        i = 19 if i >= 20 else i
+        i = ITERATION_STEPS - 1 if i >= ITERATION_STEPS else i
         chunk_filled = chunk.copy()
         chunk_temp = chunk.copy()
 

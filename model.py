@@ -1,9 +1,69 @@
 import numpy as np
 import theano.tensor as T
-import theano
 import conv_ops
-import deconv_ops
 import feedforward
+from theano.tensor.signal.pool import pool_2d
+
+FEATURE_MAPS = 32
+
+
+def build_gated_downsample(P, i):
+    conv = build_conv_layer(
+        P, name="downsample_%d" % i,
+        input_size=FEATURE_MAPS,
+        output_size=2 * FEATURE_MAPS,
+        rfield_size=3,
+        weight_init=tanh_weight_init,
+        activation=lambda x: x
+    )
+
+    def ds(X):
+        lin = conv(X)
+        gate = T.nnet.sigmoid(lin[:, :FEATURE_MAPS, :, :])
+        output = (gate * T.tanh(lin[:, FEATURE_MAPS:, :, :]) +
+                  (1 - gate) * X)
+
+        return pool_2d(output, (2, 2),
+                       ignore_border=True,
+                       mode='max')
+    return ds
+
+
+def build_gated_upsample(P, i):
+    conv = build_conv_layer(
+        P, name="upsample_%d" % i,
+        input_size=FEATURE_MAPS,
+        output_size=2 * FEATURE_MAPS,
+        rfield_size=5,
+        weight_init=tanh_weight_init,
+        activation=lambda x: x
+    )
+
+    def us(X):
+        # upsamp_X = T.zeros((X.shape[0],
+        #                     X.shape[1],
+        #                     2 * X.shape[2],
+        #                     2 * X.shape[3]))
+        # upsamp_X = T.set_subtensor(upsamp_X[:, :, ::2, ::2], X)
+        # upsamp_X = T.inc_subtensor(upsamp_X[:, :, 1:-1:2, ::2],
+        #                            0.5 * (X[:, :, :-1] + X[:, :, 1:]))
+        # upsamp_X = T.inc_subtensor(upsamp_X[:, :, ::2, 1:-1:2],
+        #                            0.5 * (X[:, :, :, :-1] + X[:, :, :, 1:]))
+        # upsamp_X = T.inc_subtensor(upsamp_X[:, :, 1:-1:2, 1:-1:2],
+        #                            0.25 * (X[:, :, :-1, :-1] +
+        #                                    X[:, :, 1:, :-1] +
+        #                                    X[:, :, :-1, 1:] +
+        #                                    X[:, :, 1:, 1:]))
+
+        upsamp_X = T.nnet.abstract_conv.bilinear_upsampling(X, 2)
+        upsamp_X = T.set_subtensor(upsamp_X[:, :, -1, :], 0)
+        upsamp_X = T.set_subtensor(upsamp_X[:, :, :, -1], 0)
+        lin = conv(upsamp_X)
+        gate = T.nnet.sigmoid(lin[:, :FEATURE_MAPS, :, :])
+        output = (gate * T.tanh(lin[:, FEATURE_MAPS:, :, :]) +
+                  (1 - gate) * upsamp_X)
+        return output
+    return us
 
 
 def build_conv_layer(P, name, input_size, output_size, rfield_size,
@@ -29,17 +89,17 @@ def tanh_weight_init(output_size, input_size, rfield_size):
     return W
 
 
-def build_gated_conv_layer(P, name, input_size, output_size, rfield_size,
+def build_gated_conv_layer(P, name, input_size, rfield_size,
                            activation=T.tanh):
     conv = build_conv_layer(P, name, input_size,
-                            2 * output_size, rfield_size,
+                            2 * input_size, rfield_size,
                             weight_init=tanh_weight_init,
                             activation=lambda x: x)
 
     def convolve(X):
         lin = conv(X)
-        gate = T.nnet.sigmoid(lin[:, :output_size, :, :])
-        output = (gate * activation(lin[:, output_size:, :, :]) +
+        gate = T.nnet.sigmoid(lin[:, :input_size, :, :])
+        output = (gate * activation(lin[:, input_size:, :, :]) +
                   (1 - gate) * X)
         return output
     return convolve
@@ -47,63 +107,48 @@ def build_gated_conv_layer(P, name, input_size, output_size, rfield_size,
 
 def build(P):
     FEATURE_STACK = 2
-    input_size = 3
-    downsample = [None] * FEATURE_STACK
-    for i in xrange(FEATURE_STACK):
-        downsample[i] = conv_ops.build_conv_and_pool(
-            P, name="downsample_%d" % i,
-            input_size=input_size,
-            output_size=32,
-            filter_size=5,
-            pool_factor=2,
-            activation=T.nnet.relu
-        )
-        input_size = 32
 
     norm_transform = build_conv_layer(
         P, name="normalising_transform",
-        input_size=32,
-        output_size=32,
+        input_size=3,
+        output_size=FEATURE_MAPS,
         rfield_size=3,
         weight_init=tanh_weight_init,
         activation=T.tanh
     )
 
+    downsample = [None] * FEATURE_STACK
+    for i in xrange(FEATURE_STACK):
+        downsample[i] = build_gated_downsample(P, i)
+
     inpaint_iterator = build_gated_conv_layer(
         P, name="inpaint_iterator",
-        input_size=32,
-        output_size=32,
+        input_size=FEATURE_MAPS,
         rfield_size=3,
     )
 
     output_transform = build_conv_layer(
         P, name="output",
-        input_size=32,
+        input_size=FEATURE_MAPS,
         output_size=3 * 256,
         rfield_size=1
     )
 
     upsample = [None] * FEATURE_STACK
     for i in xrange(FEATURE_STACK):
-        upsample[i] = deconv_ops.build_upsample_and_conv(
-            P, name="upsample_%d" % i,
-            input_size=input_size,
-            output_size=32,
-            filter_size=5,
-            pool_factor=2,
-            activation=T.nnet.relu
-        )
-        input_size = 32
+        upsample[i] = build_gated_upsample(P, i)
 
-    def inpaint(X):
+    def inpaint(X, training=True, iteration_steps=8):
         batch_size, channels, img_size_1, img_size_2 = X.shape
-        down_X = T.set_subtensor(X[:, :, 16:48, 16:48], 0)
-        down_X = down_X / 256.
-        down_X = downsample[0](down_X)
-        down_X = downsample[1](down_X)
+        down_X = X / 255.
         down_X = norm_transform(down_X)
-        # batch_size, 32, 16, 16
+        down_X = T.set_subtensor(down_X[:, :, 16:48, 16:48], 0)
+        down_X = downsample[0](down_X)
+        down_X = T.set_subtensor(down_X[:, :, 8:24, 8:24], 0)
+        down_X = downsample[1](down_X)
+        down_X = T.set_subtensor(down_X[:, :, 4:12, 4:12], 0)
 
+        # batch_size, 32, 16, 16
         fill_X = T.set_subtensor(down_X[:, :, 4:12, 4:12], 0)
         fill_X = inpaint_iterator(fill_X)
         fill_X = T.set_subtensor(down_X[:, :, 5:11, 5:11], 0)
@@ -121,13 +166,20 @@ def build(P):
             output = output_transform(up_Y)
             return fill, output
 
-        [_, outputs], _ = theano.scan(
-            fill_step,
-            n_steps=20,
-            outputs_info=[fill_X, None],
-        )
+        outputs = []
+        for i in xrange(iteration_steps):
+            fill_X, output = fill_step(fill_X)
+            outputs.append(output.dimshuffle('x', 0, 1, 2, 3))
 
-        return outputs
+    #     [_, outputs], _ = theano.scan(
+    #         fill_step,
+    #         n_steps=20,
+    #         outputs_info=[fill_X, None],
+    #     )
+        if training:
+            return outputs[-1]
+        else:
+            return T.concatenate(outputs, axis=0)
 
     return inpaint
 

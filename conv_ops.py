@@ -32,7 +32,8 @@ def build_stack(P, conv_filter_counts, conv_filter_sizes,
             output_size=conv_filter_counts[i+1],
             filter_size=conv_filter_sizes[i],
             pool_factor=conv_pool_factors[i],
-            activation=activations[i])
+            activation=activations[i]
+        )
 
     def extract(X):
         batch_size, feature_size, img_size_1, img_size_2 = X.shape
