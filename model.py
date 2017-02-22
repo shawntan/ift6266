@@ -39,7 +39,7 @@ def build_gated_upsample(P, i,
         P, name="upsample_%d" % i,
         input_size=input_feature_map,
         output_size=2 * output_feature_map,
-        rfield_size=5,
+        rfield_size=3,
         weight_init=tanh_weight_init,
         activation=lambda x: x
     )
@@ -172,10 +172,6 @@ def build(P):
 
         # batch_size, 32, 16, 16
         fill_X = T.set_subtensor(fill_X[:, :, 4:12, 4:12], up_Y)
-        fill_X = inpaint_iterator(fill_X)
-        fill_X = inpaint_iterator(fill_X)
-        fill_X = inpaint_iterator(fill_X)
-
         def fill_step(prev_fill):
             fill = inpaint_iterator(prev_fill)
             # batch_size, 32, 8, 8
