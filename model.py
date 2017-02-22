@@ -40,21 +40,6 @@ def build_gated_upsample(P, i):
     )
 
     def us(X):
-        # upsamp_X = T.zeros((X.shape[0],
-        #                     X.shape[1],
-        #                     2 * X.shape[2],
-        #                     2 * X.shape[3]))
-        # upsamp_X = T.set_subtensor(upsamp_X[:, :, ::2, ::2], X)
-        # upsamp_X = T.inc_subtensor(upsamp_X[:, :, 1:-1:2, ::2],
-        #                            0.5 * (X[:, :, :-1] + X[:, :, 1:]))
-        # upsamp_X = T.inc_subtensor(upsamp_X[:, :, ::2, 1:-1:2],
-        #                            0.5 * (X[:, :, :, :-1] + X[:, :, :, 1:]))
-        # upsamp_X = T.inc_subtensor(upsamp_X[:, :, 1:-1:2, 1:-1:2],
-        #                            0.25 * (X[:, :, :-1, :-1] +
-        #                                    X[:, :, 1:, :-1] +
-        #                                    X[:, :, :-1, 1:] +
-        #                                    X[:, :, 1:, 1:]))
-
         upsamp_X = T.nnet.abstract_conv.bilinear_upsampling(X, 2)
         upsamp_X = T.set_subtensor(upsamp_X[:, :, -1, :], 0)
         upsamp_X = T.set_subtensor(upsamp_X[:, :, :, -1], 0)
@@ -117,7 +102,7 @@ def build(P):
         activation=T.tanh
     )
 
-    downsample = [None] * FEATURE_STACK
+    downsample = [None] * 5
     for i in xrange(FEATURE_STACK):
         downsample[i] = build_gated_downsample(P, i)
 
@@ -147,15 +132,15 @@ def build(P):
         down_X = T.set_subtensor(down_X[:, :, 8:24, 8:24], 0)
         down_X = downsample[1](down_X)
         down_X = T.set_subtensor(down_X[:, :, 4:12, 4:12], 0)
-
+        fill_X = down_X
         # batch_size, 32, 16, 16
-        fill_X = T.set_subtensor(down_X[:, :, 4:12, 4:12], 0)
+        fill_X = T.set_subtensor(fill_X[:, :, 4:12, 4:12], 0)
         fill_X = inpaint_iterator(fill_X)
-        fill_X = T.set_subtensor(down_X[:, :, 5:11, 5:11], 0)
+        fill_X = T.set_subtensor(fill_X[:, :, 5:11, 5:11], 0)
         fill_X = inpaint_iterator(fill_X)
-        fill_X = T.set_subtensor(down_X[:, :, 6:10, 6:12], 0)
+        fill_X = T.set_subtensor(fill_X[:, :, 6:10, 6:12], 0)
         fill_X = inpaint_iterator(fill_X)
-        fill_X = T.set_subtensor(down_X[:, :, 7:9, 7:9], 0)
+        fill_X = T.set_subtensor(fill_X[:, :, 7:9, 7:9], 0)
 
         def fill_step(prev_fill):
             fill = inpaint_iterator(prev_fill)
@@ -171,11 +156,6 @@ def build(P):
             fill_X, output = fill_step(fill_X)
             outputs.append(output.dimshuffle('x', 0, 1, 2, 3))
 
-    #     [_, outputs], _ = theano.scan(
-    #         fill_step,
-    #         n_steps=20,
-    #         outputs_info=[fill_X, None],
-    #     )
         if training:
             return outputs[-1]
         else:
