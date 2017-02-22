@@ -4,14 +4,19 @@ import conv_ops
 import feedforward
 from theano.tensor.signal.pool import pool_2d
 
-FEATURE_MAPS = 32
+FEATURE_MAP_SIZE = 32
+FMAP_SIZES = [32, 32, 32, 64, 128, 256, 512]
+REV_FMAP_SIZES = FMAP_SIZES[:-1][::-1] + [32]
 
 
-def build_gated_downsample(P, i):
+
+def build_gated_downsample(P, i,
+                           input_feature_map,
+                           output_feature_map):
     conv = build_conv_layer(
         P, name="downsample_%d" % i,
-        input_size=FEATURE_MAPS,
-        output_size=2 * FEATURE_MAPS,
+        input_size=input_feature_map,
+        output_size=2 * output_feature_map,
         rfield_size=3,
         weight_init=tanh_weight_init,
         activation=lambda x: x
@@ -19,21 +24,21 @@ def build_gated_downsample(P, i):
 
     def ds(X):
         lin = conv(X)
-        gate = T.nnet.sigmoid(lin[:, :FEATURE_MAPS, :, :])
-        output = (gate * T.tanh(lin[:, FEATURE_MAPS:, :, :]) +
-                  (1 - gate) * X)
-
+        gate = T.nnet.sigmoid(lin[:, :output_feature_map, :, :])
+        output = gate * T.tanh(lin[:, output_feature_map:, :, :])
         return pool_2d(output, (2, 2),
                        ignore_border=True,
                        mode='max')
     return ds
 
 
-def build_gated_upsample(P, i):
+def build_gated_upsample(P, i,
+                         input_feature_map,
+                         output_feature_map):
     conv = build_conv_layer(
         P, name="upsample_%d" % i,
-        input_size=FEATURE_MAPS,
-        output_size=2 * FEATURE_MAPS,
+        input_size=input_feature_map,
+        output_size=2 * output_feature_map,
         rfield_size=5,
         weight_init=tanh_weight_init,
         activation=lambda x: x
@@ -44,9 +49,8 @@ def build_gated_upsample(P, i):
         upsamp_X = T.set_subtensor(upsamp_X[:, :, -1, :], 0)
         upsamp_X = T.set_subtensor(upsamp_X[:, :, :, -1], 0)
         lin = conv(upsamp_X)
-        gate = T.nnet.sigmoid(lin[:, :FEATURE_MAPS, :, :])
-        output = (gate * T.tanh(lin[:, FEATURE_MAPS:, :, :]) +
-                  (1 - gate) * upsamp_X)
+        gate = T.nnet.sigmoid(lin[:, :output_feature_map, :, :])
+        output = gate * T.tanh(lin[:, output_feature_map:, :, :])
         return output
     return us
 
@@ -91,37 +95,55 @@ def build_gated_conv_layer(P, name, input_size, rfield_size,
 
 
 def build(P):
-    FEATURE_STACK = 2
-
     norm_transform = build_conv_layer(
         P, name="normalising_transform",
         input_size=3,
-        output_size=FEATURE_MAPS,
+        output_size=FMAP_SIZES[0],
         rfield_size=3,
         weight_init=tanh_weight_init,
         activation=T.tanh
     )
 
-    downsample = [None] * 5
-    for i in xrange(FEATURE_STACK):
-        downsample[i] = build_gated_downsample(P, i)
+    downsample = [None] * (len(FMAP_SIZES) - 1)
+    fmap_size = 64
+    for i in xrange(len(FMAP_SIZES) - 1):
+        fmap_size = fmap_size // 2
+        print i, FMAP_SIZES[i], FMAP_SIZES[i+1], fmap_size
+        downsample[i] = build_gated_downsample(
+            P, i,
+            input_feature_map=FMAP_SIZES[i],
+            output_feature_map=FMAP_SIZES[i+1]
+        )
+    print
+    upsample = [None] * (len(FMAP_SIZES) - 2)
+    for i in xrange(len(FMAP_SIZES) - 2):
+        fmap_size = fmap_size * 2
+        print i, REV_FMAP_SIZES[i], REV_FMAP_SIZES[i+1], fmap_size
+        upsample[i] = build_gated_upsample(
+            P, i,
+            input_feature_map=REV_FMAP_SIZES[i],
+            output_feature_map=REV_FMAP_SIZES[i+1]
+        )
+
+    P.W_dense_in = feedforward.initial_weights(FMAP_SIZES[-1],
+                                               REV_FMAP_SIZES[0])
+    P.b_dense_in = np.zeros(REV_FMAP_SIZES[0])
+    P.W_dense_out = feedforward.initial_weights(REV_FMAP_SIZES[0],
+                                                REV_FMAP_SIZES[0])
+    P.b_dense_out = np.zeros(REV_FMAP_SIZES[0])
 
     inpaint_iterator = build_gated_conv_layer(
         P, name="inpaint_iterator",
-        input_size=FEATURE_MAPS,
+        input_size=FEATURE_MAP_SIZE,
         rfield_size=3,
     )
 
     output_transform = build_conv_layer(
         P, name="output",
-        input_size=FEATURE_MAPS,
+        input_size=FEATURE_MAP_SIZE,
         output_size=3 * 256,
         rfield_size=1
     )
-
-    upsample = [None] * FEATURE_STACK
-    for i in xrange(FEATURE_STACK):
-        upsample[i] = build_gated_upsample(P, i)
 
     def inpaint(X, training=True, iteration_steps=8):
         batch_size, channels, img_size_1, img_size_2 = X.shape
@@ -133,21 +155,33 @@ def build(P):
         down_X = downsample[1](down_X)
         down_X = T.set_subtensor(down_X[:, :, 4:12, 4:12], 0)
         fill_X = down_X
+        down_X = downsample[2](down_X)
+        down_X = T.set_subtensor(down_X[:, :, 2:6, 2:6], 0)
+        down_X = downsample[3](down_X)
+        down_X = T.set_subtensor(down_X[:, :, 1:3, 1:3], 0)
+        down_X = downsample[4](down_X)
+        down_X = downsample[5](down_X)
+
+        z = down_X.flatten(2)
+        z = T.tanh(T.dot(z, P.W_dense_in) + P.b_dense_in)
+        z = T.tanh(T.dot(z, P.W_dense_out) + P.b_dense_out)
+        up_Y = z.reshape((z.shape[0], REV_FMAP_SIZES[0], 1, 1))
+        up_Y = upsample[0](up_Y)
+        up_Y = upsample[1](up_Y)
+        up_Y = upsample[2](up_Y)
+
         # batch_size, 32, 16, 16
-        fill_X = T.set_subtensor(fill_X[:, :, 4:12, 4:12], 0)
+        fill_X = T.set_subtensor(fill_X[:, :, 4:12, 4:12], up_Y)
         fill_X = inpaint_iterator(fill_X)
-        fill_X = T.set_subtensor(fill_X[:, :, 5:11, 5:11], 0)
         fill_X = inpaint_iterator(fill_X)
-        fill_X = T.set_subtensor(fill_X[:, :, 6:10, 6:12], 0)
         fill_X = inpaint_iterator(fill_X)
-        fill_X = T.set_subtensor(fill_X[:, :, 7:9, 7:9], 0)
 
         def fill_step(prev_fill):
             fill = inpaint_iterator(prev_fill)
             # batch_size, 32, 8, 8
             up_Y = fill[:, :, 4:12, 4:12]
-            up_Y = upsample[0](up_Y)
-            up_Y = upsample[1](up_Y)
+            up_Y = upsample[3](up_Y)
+            up_Y = upsample[4](up_Y)
             output = output_transform(up_Y)
             return fill, output
 
