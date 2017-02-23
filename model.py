@@ -6,7 +6,7 @@ from theano.tensor.signal.pool import pool_2d
 
 FMAP_SIZES = [32, 32, 32, 64, 128, 256]
 FEATURE_MAP_SIZE = FMAP_SIZES[0]
-REV_FMAP_SIZES = FMAP_SIZES[:-1][::-1] + [32]
+REV_FMAP_SIZES = FMAP_SIZES[::-1]
 
 
 

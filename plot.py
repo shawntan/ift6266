@@ -21,7 +21,7 @@ if __name__ == "__main__":
     P.load('model.pkl')
     stream = data_io.stream_file("data/val2014.pkl.gz")
     stream = data_io.buffered_random(stream)
-    stream = data_io.randomised_chunks((x[0] for x in stream),
+    stream = data_io.chunks((x[0] for x in stream),
                                        buffer_items=10)
     for chunk in stream:
         output = fill(chunk)

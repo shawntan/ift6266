@@ -55,7 +55,7 @@ def buffered_random(stream, buffer_items=512, leak_percent=0.9):
             yield item
 
 
-def randomised_chunks(stream, buffer_items=512):
+def chunks(stream, buffer_items=512):
     chunk = None
     buffer_idx = 0
     for item in stream:

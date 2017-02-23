@@ -29,13 +29,25 @@ if __name__ == "__main__":
         givens={X: chunk_X[idx * batch_size:(idx + 1) * batch_size]}
     )
 
+    test = theano.function(inputs=[X], outputs=loss)
+
+
     def data_stream():
         stream = data_io.stream_file("data/train2014.pkl.gz")
         stream = data_io.buffered_random(stream)
-        stream = data_io.randomised_chunks((x[0] for x in stream),
-                                           buffer_items=chunk_size)
+        stream = data_io.chunks((x[0] for x in stream), buffer_items=chunk_size)
         stream = data_io.async(stream, queue_size=100)
         return stream
+
+    def validation():
+        stream = data_io.stream_file("data/train2014.pkl.gz")
+        stream = data_io.chunks((x[0] for x in stream), buffer_items=512)
+        total = 0
+        count = 0
+        for chunk in stream:
+            total += chunk.shape[0] * test(chunk)
+            count += chunk.shape[0]
+        return total / count
 
     for epoch in xrange(20):
         print "Epoch %d" % epoch
@@ -45,6 +57,7 @@ if __name__ == "__main__":
             print "Batch count:", batches
             for i in xrange(batches):
                 loss_val = train(i)
-                print loss_val
+                break
                 # pprint({p.name: g for p, g in zip(parameters, grad_norms)})
+            print validation()
             P.save('model.pkl')
