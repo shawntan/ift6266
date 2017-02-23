@@ -4,8 +4,8 @@ import conv_ops
 import feedforward
 from theano.tensor.signal.pool import pool_2d
 
-FEATURE_MAP_SIZE = 32
-FMAP_SIZES = [32, 32, 32, 64, 128, 256, 512]
+FMAP_SIZES = [32, 32, 32, 64, 128, 256]
+FEATURE_MAP_SIZE = FMAP_SIZES[0]
 REV_FMAP_SIZES = FMAP_SIZES[:-1][::-1] + [32]
 
 
@@ -25,7 +25,12 @@ def build_gated_downsample(P, i,
     def ds(X):
         lin = conv(X)
         gate = T.nnet.sigmoid(lin[:, :output_feature_map, :, :])
-        output = gate * T.tanh(lin[:, output_feature_map:, :, :])
+        if output_feature_map == input_feature_map:
+            output = (gate * T.tanh(lin[:, output_feature_map:, :, :]) +
+                      (1 - gate) * X)
+        else:
+            output = gate * T.tanh(lin[:, output_feature_map:, :, :])
+
         return pool_2d(output, (2, 2),
                        ignore_border=True,
                        mode='max')
@@ -46,11 +51,14 @@ def build_gated_upsample(P, i,
 
     def us(X):
         upsamp_X = T.nnet.abstract_conv.bilinear_upsampling(X, 2)
-        upsamp_X = T.set_subtensor(upsamp_X[:, :, -1, :], 0)
-        upsamp_X = T.set_subtensor(upsamp_X[:, :, :, -1], 0)
         lin = conv(upsamp_X)
         gate = T.nnet.sigmoid(lin[:, :output_feature_map, :, :])
-        output = gate * T.tanh(lin[:, output_feature_map:, :, :])
+        if output_feature_map == input_feature_map:
+            output = (gate * T.tanh(lin[:, output_feature_map:, :, :]) +
+                      (1 - gate) * upsamp_X)
+        else:
+            output = gate * T.tanh(lin[:, output_feature_map:, :, :])
+
         return output
     return us
 
@@ -114,9 +122,11 @@ def build(P):
             input_feature_map=FMAP_SIZES[i],
             output_feature_map=FMAP_SIZES[i+1]
         )
+    downsample_fmap_size = fmap_size
     print
-    upsample = [None] * (len(FMAP_SIZES) - 2)
-    for i in xrange(len(FMAP_SIZES) - 2):
+    upsample = [None] * (len(FMAP_SIZES) - 1)
+    fmap_size = 1
+    for i in xrange(len(FMAP_SIZES) - 1):
         fmap_size = fmap_size * 2
         print i, REV_FMAP_SIZES[i], REV_FMAP_SIZES[i+1], fmap_size
         upsample[i] = build_gated_upsample(
@@ -125,10 +135,11 @@ def build(P):
             output_feature_map=REV_FMAP_SIZES[i+1]
         )
 
-    P.W_dense_in = feedforward.initial_weights(FMAP_SIZES[-1],
-                                               REV_FMAP_SIZES[0])
-    P.b_dense_in = np.zeros(REV_FMAP_SIZES[0])
-    P.W_dense_out = feedforward.initial_weights(REV_FMAP_SIZES[0],
+    P.W_dense_in = feedforward.initial_weights(
+            FMAP_SIZES[-1] * downsample_fmap_size**2,
+            512)
+    P.b_dense_in = np.zeros(512)
+    P.W_dense_out = feedforward.initial_weights(512,
                                                 REV_FMAP_SIZES[0])
     P.b_dense_out = np.zeros(REV_FMAP_SIZES[0])
 
@@ -160,7 +171,6 @@ def build(P):
         down_X = downsample[3](down_X)
         down_X = T.set_subtensor(down_X[:, :, 1:3, 1:3], 0)
         down_X = downsample[4](down_X)
-        down_X = downsample[5](down_X)
 
         z = down_X.flatten(2)
         z = T.tanh(T.dot(z, P.W_dense_in) + P.b_dense_in)
