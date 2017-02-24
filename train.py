@@ -9,7 +9,7 @@ import math
 from pprint import pprint
 
 if __name__ == "__main__":
-    chunk_size = 2000
+    chunk_size = 5000
     batch_size = 20
     P = Parameters()
     inpaint = model.build(P)
@@ -31,16 +31,16 @@ if __name__ == "__main__":
 
     test = theano.function(inputs=[X], outputs=loss)
 
-
     def data_stream():
         stream = data_io.stream_file("data/train2014.pkl.gz")
         stream = data_io.buffered_random(stream)
-        stream = data_io.chunks((x[0] for x in stream), buffer_items=chunk_size)
+        stream = data_io.chunks((x[0] for x in stream),
+                                buffer_items=chunk_size)
         stream = data_io.async(stream, queue_size=100)
         return stream
 
     def validation():
-        stream = data_io.stream_file("data/train2014.pkl.gz")
+        stream = data_io.stream_file("data/val2014.pkl.gz")
         stream = data_io.chunks((x[0] for x in stream), buffer_items=512)
         total = 0
         count = 0
@@ -49,15 +49,20 @@ if __name__ == "__main__":
             count += chunk.shape[0]
         return total / count
 
+    best_cost = np.inf
     for epoch in xrange(20):
-        print "Epoch %d" % epoch
+        print "Epoch %d" % epoch,
         for chunk in data_stream():
             chunk_X.set_value(chunk)
             batches = int(math.ceil(chunk.shape[0] / float(batch_size)))
-            print "Batch count:", batches
             for i in xrange(batches):
                 loss_val = train(i)
-                break
                 # pprint({p.name: g for p, g in zip(parameters, grad_norms)})
-            print validation()
+        cost = validation()
+        print cost,
+        if cost < best_cost:
+            print "Saving...."
             P.save('model.pkl')
+            best_cost = cost
+        else:
+            print
