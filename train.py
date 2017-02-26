@@ -15,8 +15,11 @@ if __name__ == "__main__":
     inpaint = model.build(P)
 
     X = T.itensor4('X')
-    loss = model.cost(inpaint(T.cast(X, 'float32')), X) / (
-        32 * 32)
+    loss = model.cost(inpaint(T.cast(X, 'float32')), X) / (32 * 32)
+    val_loss = model.cost(
+        inpaint(T.cast(X, 'float32'), training=False), X
+    ) / (32 * 32)
+    display_loss = loss
     parameters = P.values()
     pprint(parameters)
     gradients = updates.clip_deltas(T.grad(loss, wrt=parameters), 5)
@@ -24,24 +27,25 @@ if __name__ == "__main__":
     idx = T.iscalar('idx')
     train = theano.function(
         inputs=[idx],
-        outputs=loss,
-        updates=updates.adam(parameters, gradients, learning_rate=1e-4),
+        outputs=display_loss, #[T.sum(T.sqr(w)) for w in gradients],
+        updates=updates.adam(parameters, gradients, learning_rate=2e-3),
         givens={X: chunk_X[idx * batch_size:(idx + 1) * batch_size]}
     )
 
-    test = theano.function(inputs=[X], outputs=loss)
+    test = theano.function(inputs=[X], outputs=val_loss)
 
     def data_stream():
         stream = data_io.stream_file("data/train2014.pkl.gz")
         stream = data_io.buffered_random(stream)
         stream = data_io.chunks((x[0] for x in stream),
                                 buffer_items=chunk_size)
-        stream = data_io.async(stream, queue_size=100)
+        stream = data_io.async(stream, queue_size=2)
         return stream
 
     def validation():
         stream = data_io.stream_file("data/val2014.pkl.gz")
         stream = data_io.chunks((x[0] for x in stream), buffer_items=512)
+        stream = data_io.async(stream, queue_size=3)
         total = 0
         count = 0
         for chunk in stream:
@@ -51,13 +55,13 @@ if __name__ == "__main__":
 
     best_cost = np.inf
     for epoch in xrange(20):
-        print "Epoch %d" % epoch,
+        print "Epoch %d" % epoch
         for chunk in data_stream():
             chunk_X.set_value(chunk)
             batches = int(math.ceil(chunk.shape[0] / float(batch_size)))
             for i in xrange(batches):
-                loss_val = train(i)
-                print loss_val
+                loss = train(i)
+                print loss
                 # pprint({p.name: g for p, g in zip(parameters, grad_norms)})
         cost = validation()
         print cost,
@@ -67,3 +71,4 @@ if __name__ == "__main__":
             best_cost = cost
         else:
             print
+        print "New epoch."

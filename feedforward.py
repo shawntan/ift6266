@@ -3,7 +3,7 @@ import theano.tensor as T
 import numpy as np
 
 
-def initial_weights(input_size, output_size, factor=1):
+def initial_weights(input_size, output_size, factor=4):
     return np.asarray(
       np.random.uniform(
          low=-factor * np.sqrt(6. / (input_size + output_size)),

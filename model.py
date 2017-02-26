@@ -3,7 +3,6 @@ import theano.tensor as T
 import conv_ops
 import feedforward
 from theano.tensor.signal.pool import pool_2d
-
 FMAP_SIZES = [32, 32, 32, 64, 128, 256]
 FEATURE_MAP_SIZE = FMAP_SIZES[0]
 REV_FMAP_SIZES = FMAP_SIZES[::-1]
@@ -18,21 +17,17 @@ def build_gated_downsample(P, i,
         output_size=2 * output_feature_map,
         rfield_size=3,
         weight_init=tanh_weight_init,
-        activation=lambda x: x
+        activation=lambda x: x,
+        gated_bias_init=True
     )
 
     def ds(X):
         lin = conv(X)
         gate = T.nnet.sigmoid(lin[:, :output_feature_map, :, :])
-        if output_feature_map == input_feature_map:
-            output = (gate * T.tanh(lin[:, output_feature_map:, :, :]) +
-                      (1 - gate) * X)
-        else:
-            output = gate * T.tanh(lin[:, output_feature_map:, :, :])
-
+        output = gate * T.tanh(lin[:, output_feature_map:, :, :])
         return pool_2d(output, (2, 2),
                        ignore_border=True,
-                       mode='max')
+                       mode='average_exc_pad')
     return ds
 
 
@@ -45,18 +40,15 @@ def build_gated_upsample(P, i,
         output_size=2 * output_feature_map,
         rfield_size=3,
         weight_init=tanh_weight_init,
-        activation=lambda x: x
+        activation=lambda x: x,
+        gated_bias_init=True
     )
 
     def us(X):
         upsamp_X = T.nnet.abstract_conv.bilinear_upsampling(X, 2)
         lin = conv(upsamp_X)
         gate = T.nnet.sigmoid(lin[:, :output_feature_map, :, :])
-        if output_feature_map == input_feature_map:
-            output = (gate * T.tanh(lin[:, output_feature_map:, :, :]) +
-                      (1 - gate) * upsamp_X)
-        else:
-            output = gate * T.tanh(lin[:, output_feature_map:, :, :])
+        output = gate * T.tanh(lin[:, output_feature_map:, :, :])
 
         return output
     return us
@@ -64,11 +56,15 @@ def build_gated_upsample(P, i,
 
 def build_conv_layer(P, name, input_size, output_size, rfield_size,
                      activation=T.nnet.relu,
-                     weight_init=conv_ops.conv_weight_init):
+                     weight_init=conv_ops.conv_weight_init,
+                     gated_bias_init=False):
     P['W_conv_%s' % name] = weight_init(output_size,
                                         input_size,
                                         rfield_size)
-    P['b_conv_%s' % name] = np.zeros(output_size)
+    b_ = np.zeros(output_size)
+    if gated_bias_init:
+        b_[output_size:] = 5
+    P['b_conv_%s' % name] = b_
     W = P['W_conv_%s' % name]
     b = P['b_conv_%s' % name].dimshuffle('x', 0, 'x', 'x')
 
@@ -90,13 +86,14 @@ def build_gated_conv_layer(P, name, input_size, rfield_size,
     conv = build_conv_layer(P, name, input_size,
                             2 * input_size, rfield_size,
                             weight_init=tanh_weight_init,
-                            activation=lambda x: x)
+                            activation=lambda x: x,
+                            gated_bias_init=True)
 
     def convolve(X):
         lin = conv(X)
         gate = T.nnet.sigmoid(lin[:, :input_size, :, :])
-        output = (gate * activation(lin[:, input_size:, :, :]) +
-                  (1 - gate) * X)
+        output = ((1 - gate) * activation(lin[:, input_size:, :, :]) +
+                  gate * X)
         return output
     return convolve
 
@@ -134,12 +131,12 @@ def build(P):
             output_feature_map=REV_FMAP_SIZES[i+1]
         )
 
-    P.W_dense_in = feedforward.initial_weights(
+    P.W_dense_in = feedforward.relu_init(
             FMAP_SIZES[-1] * downsample_fmap_size**2,
             512)
     P.b_dense_in = np.zeros(512)
-    P.W_dense_out = feedforward.initial_weights(512,
-                                                REV_FMAP_SIZES[0])
+    P.W_dense_out = feedforward.relu_init(
+        512, REV_FMAP_SIZES[0])
     P.b_dense_out = np.zeros(REV_FMAP_SIZES[0])
 
     inpaint_iterator = build_gated_conv_layer(
@@ -172,8 +169,8 @@ def build(P):
         down_X = downsample[4](down_X)
 
         z = down_X.flatten(2)
-        z = T.tanh(T.dot(z, P.W_dense_in) + P.b_dense_in)
-        z = T.tanh(T.dot(z, P.W_dense_out) + P.b_dense_out)
+        z = T.nnet.relu(T.dot(z, P.W_dense_in) + P.b_dense_in)
+        z = T.nnet.relu(T.dot(z, P.W_dense_out) + P.b_dense_out)
 
         up_Y = z.reshape((z.shape[0], REV_FMAP_SIZES[0], 1, 1))
         up_Y = upsample[0](up_Y)
@@ -192,32 +189,44 @@ def build(P):
             output = output_transform(up_Y)
             return fill, output
 
-        outputs = []
+        outputs = [output_transform(
+                        upsample[4](up_Y)).dimshuffle('x', 0, 1, 2, 3)]
         for i in xrange(iteration_steps):
             fill_X, output = fill_step(fill_X)
             outputs.append(output.dimshuffle('x', 0, 1, 2, 3))
-
-        return T.concatenate(outputs, axis=0)
+        if training:
+            return T.concatenate(outputs, axis=0)
+        else:
+            return outputs[-1]
 
     return inpaint
 
 
-def cost(recon, X, iteration_steps=16):
+def cost(recon, X, validation=False):
     true = X[:, :, 16:48, 16:48].dimshuffle(0, 2, 3, 1)
-    batch_size, img_size_1, img_size_2, _ = true.shape
-    true = true.flatten()
+    iteration_steps, batch_size, channels, img_size_1, img_size_2 = recon.shape
+    true = T.extra_ops.repeat(
+        true[None, :, :, :, :],
+        repeats=iteration_steps,
+        axis=0
+    )
+    true = true.reshape((iteration_steps *
+                         batch_size *
+                         img_size_1 * img_size_2 * 3,))
     recon = recon.dimshuffle(0, 1, 3, 4, 2)
     recon = recon.reshape((iteration_steps *
                            batch_size *
-                           img_size_1 * img_size_2 * 3, 256))
+                           img_size_1 * img_size_2 * 3, channels // 3))
     per_colour_loss = T.nnet.categorical_crossentropy(
-        T.nnet.softmax(recon),
-        T.extra_ops.repeat(true, repeats=iteration_steps)
+        T.nnet.softmax(recon), true
     )
     per_colour_loss = per_colour_loss.reshape((iteration_steps, batch_size,
                                                img_size_1, img_size_2, 3))
-    per_image_loss = T.sum(per_colour_loss, axis=(-3, -2, -1))
-    return T.mean(per_image_loss)
+    per_pixel_loss = T.sum(per_colour_loss, axis=-1)
+    per_pixel_loss = T.mean(per_pixel_loss, axis=0)
+
+    per_image_loss = T.sum(per_pixel_loss, axis=(1, 2))
+    return T.mean(per_image_loss, axis=0)
 
 
 def predict(recon):
