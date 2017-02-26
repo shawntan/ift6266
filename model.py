@@ -174,6 +174,7 @@ def build(P):
         z = down_X.flatten(2)
         z = T.tanh(T.dot(z, P.W_dense_in) + P.b_dense_in)
         z = T.tanh(T.dot(z, P.W_dense_out) + P.b_dense_out)
+
         up_Y = z.reshape((z.shape[0], REV_FMAP_SIZES[0], 1, 1))
         up_Y = upsample[0](up_Y)
         up_Y = upsample[1](up_Y)
@@ -196,25 +197,26 @@ def build(P):
             fill_X, output = fill_step(fill_X)
             outputs.append(output.dimshuffle('x', 0, 1, 2, 3))
 
-        if training:
-            return outputs[-1]
-        else:
-            return T.concatenate(outputs, axis=0)
+        return T.concatenate(outputs, axis=0)
 
     return inpaint
 
 
-def cost(recon, X):
+def cost(recon, X, iteration_steps=16):
     true = X[:, :, 16:48, 16:48].dimshuffle(0, 2, 3, 1)
     batch_size, img_size_1, img_size_2, _ = true.shape
     true = true.flatten()
-    recon = recon.dimshuffle(0, 2, 3, 1)
-    recon = recon.reshape((batch_size * img_size_1 * img_size_2 * 3, 256))
-    per_colour_loss = T.nnet.categorical_crossentropy(T.nnet.softmax(recon),
-                                                      true)
-    per_colour_loss = per_colour_loss.reshape((batch_size,
+    recon = recon.dimshuffle(0, 1, 3, 4, 2)
+    recon = recon.reshape((iteration_steps *
+                           batch_size *
+                           img_size_1 * img_size_2 * 3, 256))
+    per_colour_loss = T.nnet.categorical_crossentropy(
+        T.nnet.softmax(recon),
+        T.extra_ops.repeat(true, repeats=iteration_steps)
+    )
+    per_colour_loss = per_colour_loss.reshape((iteration_steps, batch_size,
                                                img_size_1, img_size_2, 3))
-    per_image_loss = T.sum(per_colour_loss, axis=(1, 2, 3))
+    per_image_loss = T.sum(per_colour_loss, axis=(-3, -2, -1))
     return T.mean(per_image_loss)
 
 

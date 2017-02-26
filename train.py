@@ -15,7 +15,7 @@ if __name__ == "__main__":
     inpaint = model.build(P)
 
     X = T.itensor4('X')
-    loss = model.cost(inpaint(T.cast(X, 'float32'))[-1], X) / (
+    loss = model.cost(inpaint(T.cast(X, 'float32')), X) / (
         32 * 32)
     parameters = P.values()
     pprint(parameters)
@@ -25,7 +25,7 @@ if __name__ == "__main__":
     train = theano.function(
         inputs=[idx],
         outputs=loss,
-        updates=updates.adam(parameters, gradients, learning_rate=1e-3),
+        updates=updates.adam(parameters, gradients, learning_rate=1e-4),
         givens={X: chunk_X[idx * batch_size:(idx + 1) * batch_size]}
     )
 
@@ -57,6 +57,7 @@ if __name__ == "__main__":
             batches = int(math.ceil(chunk.shape[0] / float(batch_size)))
             for i in xrange(batches):
                 loss_val = train(i)
+                print loss_val
                 # pprint({p.name: g for p, g in zip(parameters, grad_norms)})
         cost = validation()
         print cost,
