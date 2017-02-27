@@ -10,7 +10,7 @@ from pprint import pprint
 
 if __name__ == "__main__":
     chunk_size = 5000
-    batch_size = 20
+    batch_size = 8
     P = Parameters()
     inpaint = model.build(P)
 
@@ -28,7 +28,7 @@ if __name__ == "__main__":
     train = theano.function(
         inputs=[idx],
         outputs=display_loss, #[T.sum(T.sqr(w)) for w in gradients],
-        updates=updates.adam(parameters, gradients, learning_rate=2e-3),
+        updates=updates.adam(parameters, gradients, learning_rate=3e-4),
         givens={X: chunk_X[idx * batch_size:(idx + 1) * batch_size]}
     )
 
@@ -44,7 +44,7 @@ if __name__ == "__main__":
 
     def validation():
         stream = data_io.stream_file("data/val2014.pkl.gz")
-        stream = data_io.chunks((x[0] for x in stream), buffer_items=512)
+        stream = data_io.chunks((x[0] for x in stream), buffer_items=128)
         stream = data_io.async(stream, queue_size=3)
         total = 0
         count = 0
@@ -55,14 +55,7 @@ if __name__ == "__main__":
 
     best_cost = np.inf
     for epoch in xrange(20):
-        print "Epoch %d" % epoch
-        for chunk in data_stream():
-            chunk_X.set_value(chunk)
-            batches = int(math.ceil(chunk.shape[0] / float(batch_size)))
-            for i in xrange(batches):
-                loss = train(i)
-                print loss
-                # pprint({p.name: g for p, g in zip(parameters, grad_norms)})
+        print "Epoch %d" % epoch,
         cost = validation()
         print cost,
         if cost < best_cost:
@@ -71,4 +64,11 @@ if __name__ == "__main__":
             best_cost = cost
         else:
             print
-        print "New epoch."
+        for chunk in data_stream():
+            chunk_X.set_value(chunk)
+            batches = int(math.ceil(chunk.shape[0] / float(batch_size)))
+            for i in xrange(batches):
+                loss = train(i)
+                print loss
+                # pprint({p.name: g for p, g in zip(parameters, grad_norms)})
+

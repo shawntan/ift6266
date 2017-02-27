@@ -152,7 +152,7 @@ def build(P):
         rfield_size=1
     )
 
-    def inpaint(X, training=True, iteration_steps=16):
+    def inpaint(X, training=True, iteration_steps=8):
         batch_size, channels, img_size_1, img_size_2 = X.shape
         down_X = X / 255.
         down_X = norm_transform(down_X)
@@ -230,8 +230,10 @@ def cost(recon, X, validation=False):
 
 
 def predict(recon):
-    new_recon_shape = T.concatenate([recon.shape[:-3], (3, 256,
-                                                        recon.shape[-2],
-                                                        recon.shape[-1])])
-    recon = recon.reshape(new_recon_shape, ndim=recon.ndim + 1)
-    return T.argmax(recon, axis=-3)
+    iteration_steps, batch_size, channels, img_size_1, img_size_2 = recon.shape
+    new_recon_shape = (iteration_steps,
+                       batch_size,
+                       3, 256,
+                       img_size_1,
+                       img_size_2)
+    return T.argmax(recon.reshape(new_recon_shape), axis=-3)
