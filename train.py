@@ -14,13 +14,14 @@ if __name__ == "__main__":
     P = Parameters()
     inpaint = model.build(P)
 
-    X = T.itensor4('X')
-    loss = model.cost(inpaint(T.cast(X, 'float32')), X) / (32 * 32)
-    val_loss = model.cost(
-        inpaint(T.cast(X, 'float32'), training=False), X
-    ) / (32 * 32)
-    display_loss = loss
     parameters = P.values()
+    X = T.itensor4('X')
+    loss = (model.cost(inpaint(T.cast(X, 'float32')), X) +
+            1e-4 * sum(T.sum(T.sqr(w)) for w in parameters)) / (32 * 32)
+    val_loss = model.cost(
+        inpaint(T.cast(X, 'float32')), X
+    ) / (32 * 32)
+    display_loss = val_loss
     pprint(parameters)
     gradients = updates.clip_deltas(T.grad(loss, wrt=parameters), 5)
     chunk_X = theano.shared(np.empty((1, 3, 64, 64), dtype=np.int32))
@@ -44,7 +45,7 @@ if __name__ == "__main__":
 
     def validation():
         stream = data_io.stream_file("data/val2014.pkl.gz")
-        stream = data_io.chunks((x[0] for x in stream), buffer_items=128)
+        stream = data_io.chunks((x[0] for x in stream), buffer_items=16)
         stream = data_io.async(stream, queue_size=3)
         total = 0
         count = 0

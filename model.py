@@ -3,7 +3,7 @@ import theano.tensor as T
 import conv_ops
 import feedforward
 from theano.tensor.signal.pool import pool_2d
-FMAP_SIZES = [32, 32, 32, 64, 128, 256]
+FMAP_SIZES = [16, 32, 64, 128, 256, 256]
 FEATURE_MAP_SIZE = FMAP_SIZES[0]
 REV_FMAP_SIZES = FMAP_SIZES[::-1]
 
@@ -141,13 +141,13 @@ def build(P):
 
     inpaint_iterator = build_gated_conv_layer(
         P, name="inpaint_iterator",
-        input_size=FEATURE_MAP_SIZE,
+        input_size=32,
         rfield_size=3,
     )
 
     output_transform = build_conv_layer(
         P, name="output",
-        input_size=FEATURE_MAP_SIZE,
+        input_size=FMAP_SIZES[0],
         output_size=3 * 256,
         rfield_size=1
     )
@@ -189,8 +189,7 @@ def build(P):
             output = output_transform(up_Y)
             return fill, output
 
-        outputs = [output_transform(
-                        upsample[4](up_Y)).dimshuffle('x', 0, 1, 2, 3)]
+        outputs = []
         for i in xrange(iteration_steps):
             fill_X, output = fill_step(fill_X)
             outputs.append(output.dimshuffle('x', 0, 1, 2, 3))
