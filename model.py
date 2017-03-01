@@ -194,8 +194,7 @@ def build(P):
             fill_X, output = fill_step(fill_X)
             outputs.append(output.dimshuffle('x', 0, 1, 2, 3))
         if training:
-            return outputs[-1]
-            #return T.concatenate(outputs, axis=0)
+            return T.concatenate(outputs, axis=0)
         else:
             return outputs[-1]
 
@@ -223,7 +222,7 @@ def cost(recon, X, validation=False):
     per_colour_loss = per_colour_loss.reshape((iteration_steps, batch_size,
                                                img_size_1, img_size_2, 3))
     per_pixel_loss = T.sum(per_colour_loss, axis=-1)
-    per_pixel_loss = T.mean(per_pixel_loss, axis=0)
+    per_pixel_loss = T.max(per_pixel_loss, axis=0)
 
     per_image_loss = T.sum(per_pixel_loss, axis=(1, 2))
     return T.mean(per_image_loss, axis=0)
