@@ -15,7 +15,7 @@ if __name__ == "__main__":
 
     X = T.itensor4('X')
     Y = model.predict(inpaint(T.cast(X, 'float32'),
-                              training=False,
+                              training=True,
                               iteration_steps=ITERATION_STEPS))
     fill = theano.function(inputs=[X], outputs=Y)
     P.load('model.pkl')

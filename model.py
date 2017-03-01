@@ -3,7 +3,7 @@ import theano.tensor as T
 import conv_ops
 import feedforward
 from theano.tensor.signal.pool import pool_2d
-FMAP_SIZES = [16, 32, 64, 128, 256, 256]
+FMAP_SIZES = [32, 32, 64, 128, 256, 256]
 FEATURE_MAP_SIZE = FMAP_SIZES[0]
 REV_FMAP_SIZES = FMAP_SIZES[::-1]
 
@@ -194,7 +194,8 @@ def build(P):
             fill_X, output = fill_step(fill_X)
             outputs.append(output.dimshuffle('x', 0, 1, 2, 3))
         if training:
-            return T.concatenate(outputs, axis=0)
+            return outputs[-1]
+            #return T.concatenate(outputs, axis=0)
         else:
             return outputs[-1]
 
