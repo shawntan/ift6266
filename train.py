@@ -34,7 +34,7 @@ if __name__ == "__main__":
     )
 
     test = theano.function(inputs=[X], outputs=val_loss)
-
+    print "Done compilation."
     def data_stream():
         stream = data_io.stream_file("data/train2014.pkl.gz")
         stream = data_io.buffered_random(stream)

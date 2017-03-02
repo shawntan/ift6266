@@ -155,11 +155,11 @@ def build(P):
     def inpaint(X, training=True, iteration_steps=8):
         batch_size, channels, img_size_1, img_size_2 = X.shape
         down_X = X / 255.
-        down_X = norm_transform(down_X)
         down_X = T.set_subtensor(down_X[:, :, 16:48, 16:48], 0)
+        down_X = norm_transform(down_X)
+        fill_X = down_X
         down_X = downsample[0](down_X)
         down_X = T.set_subtensor(down_X[:, :, 8:24, 8:24], 0)
-        fill_X = down_X
         down_X = downsample[1](down_X)
         down_X = T.set_subtensor(down_X[:, :, 4:12, 4:12], 0)
         down_X = downsample[2](down_X)
@@ -177,16 +177,15 @@ def build(P):
         up_Y = upsample[1](up_Y)
         up_Y = upsample[2](up_Y)
         up_Y = upsample[3](up_Y)
+        up_Y = upsample[4](up_Y)
 
         # batch_size, 32, 16, 16
-        fill_X = T.set_subtensor(fill_X[:, :, 8:24, 8:24], up_Y)
+        fill_X = T.set_subtensor(fill_X[:, :, 16:48, 16:48], up_Y)
 
         def fill_step(prev_fill):
             fill = inpaint_iterator(prev_fill)
             # batch_size, 32, 8, 8
-            up_Y = fill[:, :, 8:24, 8:24]
-            up_Y = upsample[4](up_Y)
-            output = output_transform(up_Y)
+            output = output_transform(fill)[:, :, 16:48, 16:48]
             return fill, output
 
         outputs = []
