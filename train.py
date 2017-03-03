@@ -10,7 +10,7 @@ from pprint import pprint
 
 if __name__ == "__main__":
     chunk_size = 5000
-    batch_size = 8
+    batch_size = 4
     P = Parameters()
     inpaint = model.build(P)
 
@@ -29,7 +29,7 @@ if __name__ == "__main__":
     train = theano.function(
         inputs=[idx],
         outputs=display_loss, #[T.sum(T.sqr(w)) for w in gradients],
-        updates=updates.adam(parameters, gradients, learning_rate=3e-4),
+        updates=updates.adam(parameters, gradients, learning_rate=1e-4),
         givens={X: chunk_X[idx * batch_size:(idx + 1) * batch_size]}
     )
 

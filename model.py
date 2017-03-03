@@ -193,7 +193,7 @@ def build(P):
             fill_X, output = fill_step(fill_X)
             outputs.append(output.dimshuffle('x', 0, 1, 2, 3))
         if training:
-            return T.mean(T.concatenate(outputs, axis=0), axis=0)[None, :, :, :, :]
+            return outputs[-1]
         else:
             return outputs[-1]
 
