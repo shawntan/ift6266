@@ -162,13 +162,13 @@ def build(P):
         down_X = input_transform(down_X)
         fill_X = down_X
         down_X = downsample[0](down_X)
-        down_X = T.set_subtensor(down_X[:, :, 8:24, 8:24], 0)
+#        down_X = T.set_subtensor(down_X[:, :, 8:24, 8:24], 0)
         down_X = downsample[1](down_X)
-        down_X = T.set_subtensor(down_X[:, :, 4:12, 4:12], 0)
+#        down_X = T.set_subtensor(down_X[:, :, 4:12, 4:12], 0)
         down_X = downsample[2](down_X)
-        down_X = T.set_subtensor(down_X[:, :, 2:6, 2:6], 0)
+#        down_X = T.set_subtensor(down_X[:, :, 2:6, 2:6], 0)
         down_X = downsample[3](down_X)
-        down_X = T.set_subtensor(down_X[:, :, 1:3, 1:3], 0)
+#        down_X = T.set_subtensor(down_X[:, :, 1:3, 1:3], 0)
         down_X = downsample[4](down_X)
 
         z = down_X.flatten(2)
@@ -188,18 +188,26 @@ def build(P):
 
         def fill_step(prev_fill):
             fill = inpaint_iterator(prev_fill)
-            # batch_size, 32, 8, 8
-            output = output_transform(fill)[:, :, 16:48, 16:48]
-            return fill, output
+            return fill
 
-        outputs = []
+        fills = []
         for i in xrange(iteration_steps):
-            fill_X, output = fill_step(fill_X)
-            outputs.append(output.dimshuffle('x', 0, 1, 2, 3))
+            fill_X = fill_step(fill_X)
+            fills.append(fills)
+
         if training:
-            return T.concatenate(outputs, axis=0)
+            fills_X = T.concatenate(fills, axis=0)
         else:
-            return outputs[-1]
+            fills_X = fills[-1]
+            iteration_steps = 1
+
+        output = output_transform(fills_X)[:, :, 16:48, 16:48]
+        output = output.reshape((iteration_steps,
+                                 batch_size,
+                                 output.shape[1],
+                                 output.shape[2],
+                                 output.shape[3]))
+        return output
     return inpaint
 
 
