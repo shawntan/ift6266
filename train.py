@@ -10,7 +10,7 @@ from pprint import pprint
 
 if __name__ == "__main__":
     chunk_size = 5000
-    batch_size = 4
+    batch_size = 32
     P = Parameters()
     inpaint = model.build(P)
 
@@ -26,15 +26,17 @@ if __name__ == "__main__":
     gradients = updates.clip_deltas(T.grad(loss, wrt=parameters), 5)
     chunk_X = theano.shared(np.empty((1, 3, 64, 64), dtype=np.int32))
     idx = T.iscalar('idx')
+    # [T.sum(T.sqr(w)) for w in gradients],
     train = theano.function(
         inputs=[idx],
-        outputs=display_loss, #[T.sum(T.sqr(w)) for w in gradients],
+        outputs=display_loss,
         updates=updates.adam(parameters, gradients, learning_rate=1e-4),
         givens={X: chunk_X[idx * batch_size:(idx + 1) * batch_size]}
     )
 
     test = theano.function(inputs=[X], outputs=val_loss)
     print "Done compilation."
+
     def data_stream():
         stream = data_io.stream_file("data/train2014.pkl.gz")
         stream = data_io.buffered_random(stream)
@@ -45,7 +47,7 @@ if __name__ == "__main__":
 
     def validation():
         stream = data_io.stream_file("data/val2014.pkl.gz")
-        stream = data_io.chunks((x[0] for x in stream), buffer_items=16)
+        stream = data_io.chunks((x[0] for x in stream), buffer_items=128)
         stream = data_io.async(stream, queue_size=3)
         total = 0
         count = 0
@@ -72,4 +74,3 @@ if __name__ == "__main__":
                 loss = train(i)
                 print loss
                 # pprint({p.name: g for p, g in zip(parameters, grad_norms)})
-

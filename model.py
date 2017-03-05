@@ -8,49 +8,42 @@ FEATURE_MAP_SIZE = FMAP_SIZES[0]
 REV_FMAP_SIZES = FMAP_SIZES[::-1]
 
 
-def build_gated_downsample(P, i,
-                           input_feature_map,
-                           output_feature_map):
+def build_downsample(P, i,
+                     input_feature_map,
+                     output_feature_map):
     conv = build_conv_layer(
         P, name="downsample_%d" % i,
         input_size=input_feature_map,
-        output_size=2 * output_feature_map,
+        output_size=output_feature_map,
         rfield_size=3,
-        weight_init=tanh_weight_init,
-        activation=lambda x: x,
-        gated_bias_init=True
+        weight_init=conv_ops.conv_weight_init,
+        activation=T.nnet.relu,
+        gated_bias_init=False
     )
 
     def ds(X):
-        lin = conv(X)
-        gate = T.nnet.sigmoid(lin[:, :output_feature_map, :, :])
-        output = gate * T.tanh(lin[:, output_feature_map:, :, :])
-        return pool_2d(output, (2, 2),
+        return pool_2d(conv(X), (2, 2),
                        ignore_border=True,
                        mode='average_exc_pad')
     return ds
 
 
-def build_gated_upsample(P, i,
-                         input_feature_map,
-                         output_feature_map):
+def build_upsample(P, i,
+                   input_feature_map,
+                   output_feature_map):
     conv = build_conv_layer(
         P, name="upsample_%d" % i,
         input_size=input_feature_map,
-        output_size=2 * output_feature_map,
+        output_size=output_feature_map,
         rfield_size=3,
-        weight_init=tanh_weight_init,
+        weight_init=conv_ops.conv_weight_init,
         activation=lambda x: x,
-        gated_bias_init=True
+        gated_bias_init=False
     )
 
     def us(X):
         upsamp_X = T.nnet.abstract_conv.bilinear_upsampling(X, 2)
-        lin = conv(upsamp_X)
-        gate = T.nnet.sigmoid(lin[:, :output_feature_map, :, :])
-        output = gate * T.tanh(lin[:, output_feature_map:, :, :])
-
-        return output
+        return conv(upsamp_X)
     return us
 
 
@@ -99,9 +92,19 @@ def build_gated_conv_layer(P, name, input_size, rfield_size,
 
 
 def build(P):
-    norm_transform = build_conv_layer(
-        P, name="normalising_transform",
+
+    input_transform = build_conv_layer(
+        P, name="input_transform",
         input_size=3,
+        output_size=FMAP_SIZES[0],
+        rfield_size=3,
+        weight_init=tanh_weight_init,
+        activation=T.tanh
+    )
+
+    pre_output_transform = build_conv_layer(
+        P, name="output_transform",
+        input_size=FMAP_SIZES[0],
         output_size=FMAP_SIZES[0],
         rfield_size=3,
         weight_init=tanh_weight_init,
@@ -113,7 +116,7 @@ def build(P):
     for i in xrange(len(FMAP_SIZES) - 1):
         fmap_size = fmap_size // 2
         print i, FMAP_SIZES[i], FMAP_SIZES[i+1], fmap_size
-        downsample[i] = build_gated_downsample(
+        downsample[i] = build_downsample(
             P, i,
             input_feature_map=FMAP_SIZES[i],
             output_feature_map=FMAP_SIZES[i+1]
@@ -125,7 +128,7 @@ def build(P):
     for i in xrange(len(FMAP_SIZES) - 1):
         fmap_size = fmap_size * 2
         print i, REV_FMAP_SIZES[i], REV_FMAP_SIZES[i+1], fmap_size
-        upsample[i] = build_gated_upsample(
+        upsample[i] = build_upsample(
             P, i,
             input_feature_map=REV_FMAP_SIZES[i],
             output_feature_map=REV_FMAP_SIZES[i+1]
@@ -152,11 +155,11 @@ def build(P):
         rfield_size=1
     )
 
-    def inpaint(X, training=True, iteration_steps=8):
+    def inpaint(X, training=True, iteration_steps=16):
         batch_size, channels, img_size_1, img_size_2 = X.shape
         down_X = X / 255.
         down_X = T.set_subtensor(down_X[:, :, 16:48, 16:48], 0)
-        down_X = norm_transform(down_X)
+        down_X = input_transform(down_X)
         fill_X = down_X
         down_X = downsample[0](down_X)
         down_X = T.set_subtensor(down_X[:, :, 8:24, 8:24], 0)
@@ -179,6 +182,7 @@ def build(P):
         up_Y = upsample[3](up_Y)
         up_Y = upsample[4](up_Y)
 
+        up_Y = pre_output_transform(up_Y)
         # batch_size, 32, 16, 16
         fill_X = T.set_subtensor(fill_X[:, :, 16:48, 16:48], up_Y)
 
@@ -196,7 +200,6 @@ def build(P):
             return outputs[-1]
         else:
             return outputs[-1]
-
     return inpaint
 
 
@@ -221,7 +224,7 @@ def cost(recon, X, validation=False):
     per_colour_loss = per_colour_loss.reshape((iteration_steps, batch_size,
                                                img_size_1, img_size_2, 3))
     per_pixel_loss = T.sum(per_colour_loss, axis=-1)
-    per_pixel_loss = T.max(per_pixel_loss, axis=0)
+    per_pixel_loss = T.mean(per_pixel_loss, axis=0)
 
     per_image_loss = T.sum(per_pixel_loss, axis=(1, 2))
     return T.mean(per_image_loss, axis=0)
