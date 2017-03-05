@@ -10,7 +10,7 @@ from pprint import pprint
 
 if __name__ == "__main__":
     chunk_size = 5000
-    batch_size = 32
+    batch_size = 16
     P = Parameters()
     inpaint = model.build(P)
 
@@ -47,7 +47,7 @@ if __name__ == "__main__":
 
     def validation():
         stream = data_io.stream_file("data/val2014.pkl.gz")
-        stream = data_io.chunks((x[0] for x in stream), buffer_items=128)
+        stream = data_io.chunks((x[0] for x in stream), buffer_items=64)
         stream = data_io.async(stream, queue_size=3)
         total = 0
         count = 0
