@@ -92,3 +92,4 @@ ENV/
 data
 .*.sw*
 theano_toolkit
+*.out

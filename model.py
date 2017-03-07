@@ -18,7 +18,6 @@ def build_downsample(P, i,
         rfield_size=3,
         weight_init=conv_ops.conv_weight_init,
         activation=T.nnet.relu,
-        gated_bias_init=False
     )
 
     def ds(X):
@@ -38,25 +37,23 @@ def build_upsample(P, i,
         rfield_size=3,
         weight_init=conv_ops.conv_weight_init,
         activation=lambda x: x,
-        gated_bias_init=False
     )
 
     def us(X):
         upsamp_X = T.nnet.abstract_conv.bilinear_upsampling(X, 2)
+        upsamp_X = T.set_subtensor(upsamp_X[:, :, -1, :], 0)
+        upsamp_X = T.set_subtensor(upsamp_X[:, :, :, -1], 0)
         return conv(upsamp_X)
     return us
 
 
 def build_conv_layer(P, name, input_size, output_size, rfield_size,
                      activation=T.nnet.relu,
-                     weight_init=conv_ops.conv_weight_init,
-                     gated_bias_init=False):
+                     weight_init=conv_ops.conv_weight_init):
     P['W_conv_%s' % name] = weight_init(output_size,
                                         input_size,
                                         rfield_size)
     b_ = np.zeros(output_size)
-    if gated_bias_init:
-        b_[output_size:] = 5
     P['b_conv_%s' % name] = b_
     W = P['W_conv_%s' % name]
     b = P['b_conv_%s' % name].dimshuffle('x', 0, 'x', 'x')
@@ -79,12 +76,11 @@ def build_gated_conv_layer(P, name, input_size, rfield_size,
     conv = build_conv_layer(P, name, input_size,
                             2 * input_size, rfield_size,
                             weight_init=tanh_weight_init,
-                            activation=lambda x: x,
-                            gated_bias_init=True)
+                            activation=lambda x: x)
 
     def convolve(X):
         lin = conv(X)
-        gate = T.nnet.sigmoid(lin[:, :input_size, :, :])
+        gate = T.nnet.sigmoid(lin[:, :input_size, :, :] + 3)
         output = ((1 - gate) * activation(lin[:, input_size:, :, :]) +
                   gate * X)
         return output
@@ -155,7 +151,7 @@ def build(P):
         rfield_size=1
     )
 
-    def inpaint(X, training=True, iteration_steps=16):
+    def inpaint(X, iteration_steps=10):
         batch_size, channels, img_size_1, img_size_2 = X.shape
         down_X = X / 255.
         down_X = T.set_subtensor(down_X[:, :, 16:48, 16:48], 0)
@@ -190,24 +186,22 @@ def build(P):
             fill = inpaint_iterator(prev_fill)
             return fill
 
-        fills = []
+        fills = [fill_X]
         for i in xrange(iteration_steps):
             fill_X = fill_step(fill_X)
-            fills.append(fills)
+            fills.append(fill_X)
 
-        if training:
-            fills_X = T.concatenate(fills, axis=0)
-        else:
-            fills_X = fills[-1]
-            iteration_steps = 1
+        fills_X = T.concatenate(fills, axis=0)
 
         output = output_transform(fills_X)[:, :, 16:48, 16:48]
-        output = output.reshape((iteration_steps,
+        output = output.reshape((len(fills),
                                  batch_size,
                                  output.shape[1],
                                  output.shape[2],
                                  output.shape[3]))
-        return output
+
+        output_last = output_transform(fills[-1])[None, :, :, 16:48, 16:48]
+        return output, output_last
     return inpaint
 
 
@@ -233,9 +227,7 @@ def cost(recon, X, validation=False):
                                                img_size_1, img_size_2, 3))
     per_pixel_loss = T.sum(per_colour_loss, axis=-1)
     per_pixel_loss = T.max(per_pixel_loss, axis=0)
-
-    per_image_loss = T.sum(per_pixel_loss, axis=(1, 2))
-    return T.mean(per_image_loss, axis=0)
+    return T.mean(per_pixel_loss, axis=(0, 1, 2))
 
 
 def predict(recon):

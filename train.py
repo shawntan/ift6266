@@ -9,26 +9,28 @@ import math
 from pprint import pprint
 
 if __name__ == "__main__":
-    chunk_size = 5000
+    chunk_size = 512
     batch_size = 16
     P = Parameters()
     inpaint = model.build(P)
 
     parameters = P.values()
     X = T.itensor4('X')
-    X_hat = inpaint(T.cast(X, 'float32'))
-    loss = (model.cost(X_hat, X) +
-            1e-4 * sum(T.sum(T.sqr(w)) for w in parameters)) / (32 * 32)
-    val_loss = model.cost(X_hat[-1:], X) / (32 * 32)
+    X_hat, X_hat_last = inpaint(T.cast(X, 'float32'))
+    loss = model.cost(X_hat, X)
+    val_loss = model.cost(X_hat_last, X)
     display_loss = val_loss
     pprint(parameters)
+    print "Calculating gradient...",
     gradients = updates.clip_deltas(T.grad(loss, wrt=parameters), 5)
+    print "Done with gradients."
     chunk_X = theano.shared(np.empty((1, 3, 64, 64), dtype=np.int32))
     idx = T.iscalar('idx')
+    print "Compiling functions...",
     train = theano.function(
         inputs=[idx],
-        outputs=[T.sum(T.sqr(w)) for w in gradients],
-        updates=updates.adam(parameters, gradients, learning_rate=1e-4),
+        outputs=loss,  # [T.sum(T.sqr(w)) for w in gradients],
+        updates=updates.adam(parameters, gradients, learning_rate=3e-4),
         givens={X: chunk_X[idx * batch_size:(idx + 1) * batch_size]}
     )
 
@@ -70,5 +72,5 @@ if __name__ == "__main__":
             batches = int(math.ceil(chunk.shape[0] / float(batch_size)))
             for i in xrange(batches):
                 loss = train(i)
-                # print loss
-                pprint({p.name: g for p, g in zip(parameters, grad_norms)})
+                print loss
+                # pprint({p.name: g for p, g in zip(parameters, grad_norms)})

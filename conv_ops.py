@@ -1,5 +1,4 @@
 import numpy as np
-import theano
 import theano.tensor as T
 from theano.tensor.signal.pool import pool_2d
 
@@ -7,14 +6,11 @@ activation = T.nnet.relu
 
 
 def conv_weight_init(output_size, input_size, rfield_size):
-    factor = np.sqrt(6. / (input_size * rfield_size**2 + output_size))
-    return np.asarray(
-      np.random.uniform(
-         low=-factor, high=factor,
-         size=(output_size, input_size, rfield_size, rfield_size)
-      ),
-      dtype=theano.config.floatX
-    )
+    factor = np.sqrt(2.0 / (input_size * rfield_size**2))
+    return factor * np.random.randn(output_size,
+                                    input_size,
+                                    rfield_size,
+                                    rfield_size)
 
 
 def build_stack(P, conv_filter_counts, conv_filter_sizes,
