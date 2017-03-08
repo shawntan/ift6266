@@ -41,8 +41,8 @@ def build_upsample(P, i,
 
     def us(X):
         upsamp_X = T.nnet.abstract_conv.bilinear_upsampling(X, 2)
-        upsamp_X = T.set_subtensor(upsamp_X[:, :, -1, :], 0)
-        upsamp_X = T.set_subtensor(upsamp_X[:, :, :, -1], 0)
+        # upsamp_X = T.set_subtensor(upsamp_X[:, :, -1, :], 0)
+        # upsamp_X = T.set_subtensor(upsamp_X[:, :, :, -1], 0)
         return conv(upsamp_X)
     return us
 
@@ -57,10 +57,10 @@ def build_conv_layer(P, name, input_size, output_size, rfield_size,
     P['b_conv_%s' % name] = b_
     W = P['W_conv_%s' % name]
     b = P['b_conv_%s' % name].dimshuffle('x', 0, 'x', 'x')
-
-    def convolve(X):
+    def convolve(X, same=True):
+        border_mode = 'half' if same else 'valid'
         return activation(
-            T.nnet.conv2d(X, W, border_mode='half') + b)
+            T.nnet.conv2d(X, W, border_mode=border_mode) + b)
     return convolve
 
 
@@ -78,11 +78,15 @@ def build_gated_conv_layer(P, name, input_size, rfield_size,
                             weight_init=tanh_weight_init,
                             activation=lambda x: x)
 
-    def convolve(X):
-        lin = conv(X)
+    def convolve(X, same=True):
+        lin = conv(X, same=same)
         gate = T.nnet.sigmoid(lin[:, :input_size, :, :] + 3)
-        output = ((1 - gate) * activation(lin[:, input_size:, :, :]) +
-                  gate * X)
+        output = (1 - gate) * activation(lin[:, input_size:, :, :])
+        if same:
+            output += gate * X
+        else:
+            snip = rfield_size // 2
+            output += gate * X[:, :, snip:-snip, snip:-snip]
         return output
     return convolve
 
@@ -151,10 +155,10 @@ def build(P):
         rfield_size=1
     )
 
-    def inpaint(X, iteration_steps=10):
+    def inpaint(X, iteration_steps=16):
         batch_size, channels, img_size_1, img_size_2 = X.shape
         down_X = X / 255.
-        down_X = T.set_subtensor(down_X[:, :, 16:48, 16:48], 0)
+        down_X = T.set_subtensor(down_X[:, :, 16:-16, 16:-16], 0)
         down_X = input_transform(down_X)
         fill_X = down_X
         down_X = downsample[0](down_X)
@@ -180,33 +184,37 @@ def build(P):
 
         up_Y = pre_output_transform(up_Y)
         # batch_size, 32, 16, 16
-        fill_X = T.set_subtensor(fill_X[:, :, 16:48, 16:48], up_Y)
+        fill_X = T.set_subtensor(fill_X[:, :, 16:-16, 16:-16], up_Y)
 
-        def fill_step(prev_fill):
-            fill = inpaint_iterator(prev_fill)
+        def fill_step(prev_fill, same=False):
+            fill = inpaint_iterator(prev_fill, same=same)
             return fill
 
-        fills = [fill_X]
+        fills = [up_Y]
         for i in xrange(iteration_steps):
-            fill_X = fill_step(fill_X)
-            fills.append(fill_X)
+            mid = max(16 - (i + 1), 0)
+            fill_X = fill_step(fill_X, same=(mid == 0))
+            if mid == 0:
+                fills.append(fill_X)
+            else:
+                fills.append(fill_X[:, :, mid:-mid, mid:-mid])
 
         fills_X = T.concatenate(fills, axis=0)
 
-        output = output_transform(fills_X)[:, :, 16:48, 16:48]
+        output = output_transform(fills_X)
         output = output.reshape((len(fills),
                                  batch_size,
                                  output.shape[1],
                                  output.shape[2],
                                  output.shape[3]))
 
-        output_last = output_transform(fills[-1])[None, :, :, 16:48, 16:48]
+        output_last = output_transform(fills[-1])[None, :, :, :, :]
         return output, output_last
     return inpaint
 
 
 def cost(recon, X, validation=False):
-    true = X[:, :, 16:48, 16:48].dimshuffle(0, 2, 3, 1)
+    true = X[:, :, 16:-16, 16:-16].dimshuffle(0, 2, 3, 1)
     iteration_steps, batch_size, channels, img_size_1, img_size_2 = recon.shape
     true = T.extra_ops.repeat(
         true[None, :, :, :, :],
