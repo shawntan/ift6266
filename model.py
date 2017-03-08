@@ -191,11 +191,31 @@ def build(P):
             return fill
 
         fills = [up_Y]
+        image_size = 32 + 2 * iteration_steps
+        predicted_border = 0
         for i in xrange(iteration_steps):
-            mid = max(16 - (i + 1), 0)
-            fill_X = fill_step(fill_X, same=(mid == 0))
-            print mid, -mid
-            fills.append(fill_X[:, :, mid:-mid, mid:-mid])
+            image_size = image_size - 2
+            edge_snip = (min(image_size, 64) - 32) // 2
+
+            fill_X = fill_step(fill_X, same=image_size >= 64)
+            if predicted_border < 32 // 2:
+                predicted_border += 1
+                s = edge_snip + predicted_border
+                fill_X = T.set_subtensor(
+                    fill_X[:, :, s:-s, s:-s],
+                    up_Y[:, :, predicted_border:-predicted_border,
+                               predicted_border:-predicted_border]
+                )
+
+
+            if edge_snip > 0:
+                fills.append(fill_X[:, :,
+                                    edge_snip:-edge_snip,
+                                    edge_snip:-edge_snip])
+            else:
+                fills.append(fill_X)
+
+
 
         fills_X = T.concatenate(fills, axis=0)
 

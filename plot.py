@@ -8,7 +8,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-ITERATION_STEPS = 40
+ITERATION_STEPS = 32
 if __name__ == "__main__":
     P = Parameters()
     inpaint = model.build(P)
