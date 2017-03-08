@@ -8,16 +8,15 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-ITERATION_STEPS = 20
+ITERATION_STEPS = 40
 if __name__ == "__main__":
     P = Parameters()
     inpaint = model.build(P)
 
     X = T.itensor4('X')
-    X_hat = inpaint(T.cast(X, 'float32'),
-                    training=True,
+    X_hat, _ = inpaint(T.cast(X, 'float32'),
                     iteration_steps=ITERATION_STEPS)
-    val_loss = model.cost(X_hat[-1:], X) / (32 * 32)
+    val_loss = model.cost(X_hat[-1:], X)
     Y = model.predict(X_hat)
     fill = theano.function(inputs=[X], outputs=[Y, val_loss])
     P.load('model.pkl')
@@ -51,5 +50,5 @@ if __name__ == "__main__":
                               chunk_temp.shape[1] * chunk_temp.shape[2],
                               chunk_temp.shape[3]), interpolation='None')
 
-    anim = FuncAnimation(fig, plot, frames=np.arange(0, 30), interval=200)
+    anim = FuncAnimation(fig, plot, frames=np.arange(0, ITERATION_STEPS + 5), interval=200)
     anim.save('sample.gif', dpi=80, writer='imagemagick')
