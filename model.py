@@ -155,7 +155,7 @@ def build(P):
         rfield_size=1
     )
 
-    def inpaint(X, iteration_steps=16):
+    def inpaint(X, iteration_steps=15):
         batch_size, channels, img_size_1, img_size_2 = X.shape
         down_X = X / 255.
         down_X = T.set_subtensor(down_X[:, :, 16:-16, 16:-16], 0)
@@ -194,10 +194,8 @@ def build(P):
         for i in xrange(iteration_steps):
             mid = max(16 - (i + 1), 0)
             fill_X = fill_step(fill_X, same=(mid == 0))
-            if mid == 0:
-                fills.append(fill_X)
-            else:
-                fills.append(fill_X[:, :, mid:-mid, mid:-mid])
+            print mid, -mid
+            fills.append(fill_X[:, :, mid:-mid, mid:-mid])
 
         fills_X = T.concatenate(fills, axis=0)
 
@@ -234,7 +232,7 @@ def cost(recon, X, validation=False):
     per_colour_loss = per_colour_loss.reshape((iteration_steps, batch_size,
                                                img_size_1, img_size_2, 3))
     per_pixel_loss = T.sum(per_colour_loss, axis=-1)
-    per_pixel_loss = T.max(per_pixel_loss, axis=0)
+    per_pixel_loss = T.mean(per_pixel_loss, axis=0)
     return T.mean(per_pixel_loss, axis=(0, 1, 2))
 
 

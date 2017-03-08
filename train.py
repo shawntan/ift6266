@@ -57,6 +57,7 @@ if __name__ == "__main__":
         return total / count
 
     best_cost = np.inf
+    P.save('model.pkl')
     for epoch in xrange(20):
         print "Epoch %d" % epoch,
         cost = validation()
