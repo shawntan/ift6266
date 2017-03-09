@@ -19,7 +19,7 @@ if __name__ == "__main__":
     X_hat, X_hat_last = inpaint(T.cast(X, 'float32'))
     loss = model.cost(X_hat, X)
     val_loss = model.cost(X_hat_last, X)
-    display_loss = val_loss
+    display_loss = loss
     pprint(parameters)
     print "Calculating gradient...",
     gradients = updates.clip_deltas(T.grad(loss, wrt=parameters), 5)
@@ -34,7 +34,7 @@ if __name__ == "__main__":
         givens={X: chunk_X[idx * batch_size:(idx + 1) * batch_size]}
     )
 
-    test = theano.function(inputs=[X], outputs=val_loss)
+    test = theano.function(inputs=[X], outputs=loss)
     print "Done compilation."
 
     def data_stream():
@@ -47,7 +47,7 @@ if __name__ == "__main__":
 
     def validation():
         stream = data_io.stream_file("data/val2014.pkl.gz")
-        stream = data_io.chunks((x[0] for x in stream), buffer_items=64)
+        stream = data_io.chunks((x[0] for x in stream), buffer_items=32)
         stream = data_io.async(stream, queue_size=3)
         total = 0
         count = 0

@@ -23,7 +23,7 @@ def build_downsample(P, i,
     def ds(X):
         return pool_2d(conv(X), (2, 2),
                        ignore_border=True,
-                       mode='average_exc_pad')
+                       mode='max')
     return ds
 
 
@@ -155,7 +155,7 @@ def build(P):
         rfield_size=1
     )
 
-    def inpaint(X, iteration_steps=15):
+    def inpaint(X, iteration_steps=32):
         batch_size, channels, img_size_1, img_size_2 = X.shape
         down_X = X / 255.
         down_X = T.set_subtensor(down_X[:, :, 16:-16, 16:-16], 0)
@@ -203,10 +203,10 @@ def build(P):
                 s = edge_snip + predicted_border
                 fill_X = T.set_subtensor(
                     fill_X[:, :, s:-s, s:-s],
-                    up_Y[:, :, predicted_border:-predicted_border,
-                               predicted_border:-predicted_border]
+                    up_Y[:, :,
+                         predicted_border:-predicted_border,
+                         predicted_border:-predicted_border]
                 )
-
 
             if edge_snip > 0:
                 fills.append(fill_X[:, :,
@@ -214,8 +214,6 @@ def build(P):
                                     edge_snip:-edge_snip])
             else:
                 fills.append(fill_X)
-
-
 
         fills_X = T.concatenate(fills, axis=0)
 
@@ -252,8 +250,11 @@ def cost(recon, X, validation=False):
     per_colour_loss = per_colour_loss.reshape((iteration_steps, batch_size,
                                                img_size_1, img_size_2, 3))
     per_pixel_loss = T.sum(per_colour_loss, axis=-1)
-    per_pixel_loss = T.mean(per_pixel_loss, axis=0)
-    return T.mean(per_pixel_loss, axis=(0, 1, 2))
+    per_pixel_log_p = -per_pixel_loss
+    k = T.max(per_pixel_log_p, axis=0, keepdims=True)
+    per_pixel_log_mean_p = \
+        T.log(T.mean(T.exp(per_pixel_log_p - k), axis=0)) + k[0]
+    return -T.mean(per_pixel_log_mean_p, axis=(0, 1, 2))
 
 
 def predict(recon):
