@@ -13,7 +13,7 @@ def conv_weight_init(output_size, input_size, rfield_size):
                                     rfield_size)
 
 
-def build_stack(P, conv_filter_counts, conv_filter_sizes,
+def build_stack(P, name, conv_filter_counts, conv_filter_sizes,
                 conv_pool_factors, activations=None):
     if activations is None:
         activations = [activation] * len(conv_filter_sizes)
@@ -21,7 +21,7 @@ def build_stack(P, conv_filter_counts, conv_filter_sizes,
     for i in xrange(len(conv_filter_counts) - 1):
         conv_layers[i] = build_conv_and_pool(
             P,
-            name='stack_%d' % i,
+            name='%s_%d' % (name, i),
             input_size=conv_filter_counts[i],
             output_size=conv_filter_counts[i+1],
             filter_size=conv_filter_sizes[i],

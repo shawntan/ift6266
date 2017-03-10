@@ -42,22 +42,8 @@ def build_upsample_and_conv(P, name, input_size, output_size,
     b = P['b_%s' % name].dimshuffle('x', 0, 'x', 'x')
 
     def upsample(X):
-        upsamp_X = T.zeros((X.shape[0],
-                            X.shape[1],
-                            2 * X.shape[2],
-                            2 * X.shape[3]))
-        upsamp_X = T.set_subtensor(upsamp_X[:, :, ::2, ::2], X)
-        upsamp_X = T.inc_subtensor(upsamp_X[:, :, 1:-1:2, ::2],
-                                   0.5 * (X[:, :, :-1] + X[:, :, 1:]))
-        upsamp_X = T.inc_subtensor(upsamp_X[:, :, ::2, 1:-1:2],
-                                   0.5 * (X[:, :, :, :-1] + X[:, :, :, 1:]))
-        upsamp_X = T.inc_subtensor(upsamp_X[:, :, 1:-1:2, 1:-1:2],
-                                   0.25 * (X[:, :, :-1, :-1] +
-                                           X[:, :, 1:, :-1] +
-                                           X[:, :, :-1, 1:] +
-                                           X[:, :, 1:, 1:]))
-#        upsamp_X = T.nnet.abstract_conv.bilinear_upsampling(conved,
-#                                                            pool_factor)
+        upsamp_X = T.nnet.abstract_conv.bilinear_upsampling(X,
+                                                            pool_factor)
         Y = activation(T.nnet.conv2d(upsamp_X, W, border_mode='half') + b)
         return Y
     return upsample

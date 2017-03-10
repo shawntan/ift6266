@@ -86,26 +86,13 @@ def build_stacked_transforms(
 def build_transform(
         P, name, input_size, output_size,
         initial_weights,
-        activation, batch_norm):
+        activation):
     P["W_%s" % name] = initial_weights(input_size, output_size)
     P["b_%s" % name] = np.zeros((output_size,), dtype=np.float32)
     W = P["W_%s" % name]
     b = P["b_%s" % name]
-    if batch_norm:
-        P['gamma_%s' % name] = np.ones(output_size)
-        P['beta_%s' % name] = np.zeros(output_size)
-        gamma = P['gamma_%s' % name]
-        beta = P['beta_%s' % name]
-
     def transform(X):
         Z = T.dot(X, W) + b
-        if batch_norm:
-            Z = T.nnet.bn.batch_normalization(
-                inputs=Z,
-                gamma=gamma, beta=beta,
-                mean=Z.mean((0, 1), keepdims=True),
-                std=Z.std((0, 1), keepdims=True) + 1e-5,
-                mode='low_mem')
         output = activation(Z)
         if hasattr(output, "name"):
             output.name = name
@@ -116,7 +103,7 @@ def build_transform(
 def build_combine_transform(
         P, name, input_sizes, output_size,
         initial_weights,
-        activation, batch_norm):
+        activation):
     weights = initial_weights(sum(input_sizes), output_size)
 
     Ws = []
@@ -127,11 +114,6 @@ def build_combine_transform(
         acc_size += size
     P["b_%s" % name] = np.zeros((output_size,), dtype=np.float32)
     b = P["b_%s" % name]
-    if batch_norm:
-        P['gamma_%s' % name] = np.ones(output_size)
-        P['beta_%s' % name] = np.zeros(output_size)
-        gamma = P['gamma_%s' % name]
-        beta = P['beta_%s' % name]
 
     def transform(Xs):
         acc = 0.
@@ -141,13 +123,6 @@ def build_combine_transform(
             else:
                 acc += T.dot(X, W)
         Z = acc + b
-        if batch_norm:
-            Z = T.nnet.bn.batch_normalization(
-                inputs=Z,
-                gamma=gamma, beta=beta,
-                mean=Z.mean(0, keepdims=True),
-                std=Z.std(0, keepdims=True) + 1e-5,
-                mode='low_mem')
         output = activation(Z)
         output.name = name
         return output

@@ -7,6 +7,7 @@ import data_io
 import model
 import math
 from pprint import pprint
+import vae
 
 if __name__ == "__main__":
     chunk_size = 512
@@ -16,11 +17,13 @@ if __name__ == "__main__":
 
     parameters = P.values()
     X = T.itensor4('X')
-    X_hat, X_hat_last = inpaint(T.cast(X, 'float32'))
-    loss = model.cost(X_hat, X)
-    val_loss = model.cost(X_hat_last, X)
-    display_loss = loss
+    X_hat, posteriors, priors = inpaint(T.cast(X, 'float32') / 255.)
+    latent_kl = sum(T.mean(vae.kl_divergence(po_m, po_s, pr_m, pr_s), axis=0)
+                    for (po_m, po_s), (pr_m, pr_s) in zip(posteriors, priors))
+    recon_loss = model.cost(X_hat, X)
     pprint(parameters)
+    loss = recon_loss + latent_kl
+
     print "Calculating gradient...",
     gradients = updates.clip_deltas(T.grad(loss, wrt=parameters), 5)
     print "Done with gradients."
