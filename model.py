@@ -1,10 +1,12 @@
 import numpy as np
 import theano.tensor as T
-import conv_ops, deconv_ops
+import conv_ops
+import deconv_ops
 import feedforward
 from theano.tensor.signal.pool import pool_2d
 from theano_toolkit import utils as U
-import vae
+
+
 FMAP_SIZES = [8, 16, 32, 64, 128, 256]
 FEATURE_MAP_SIZE = FMAP_SIZES[0]
 REV_FMAP_SIZES = FMAP_SIZES[::-1]
@@ -21,6 +23,7 @@ def build_conv_layer(P, name, input_size, output_size, rfield_size,
     P['b_conv_%s' % name] = b_
     W = P['W_conv_%s' % name]
     b = P['b_conv_%s' % name].dimshuffle('x', 0, 'x', 'x')
+
     def convolve(X, same=True):
         border_mode = 'half' if same else 'valid'
         return activation(
@@ -37,6 +40,7 @@ def build_conv_gaussian_output(P, name, input_size, output_size):
     b_mean = P["b_%s_mean" % name].dimshuffle('x', 0, 'x', 'x')
     W_std = P["W_%s_std" % name].dimshuffle(1, 0, 'x', 'x')
     b_std = P["b_%s_std" % name].dimshuffle('x', 0, 'x', 'x')
+
     def gaussian_params(X):
         mean = T.nnet.conv2d(X, W_mean, border_mode='half') + b_mean
         std = T.nnet.softplus(T.nnet.conv2d(X, W_std, border_mode='half') +
@@ -59,6 +63,7 @@ def build_layer_posteriors(P, layer_sizes, output_sizes):
     def infer(hiddens):
         return [gaussian(h)
                 for h, gaussian in zip(hiddens, gaussian_transforms)]
+
 
     return infer, gaussian_transforms[-1]
 
@@ -91,7 +96,17 @@ def build_layer_priors(P, layer_sizes, latent_sizes):
             )
             results.append(gaussian_transforms[i](upsamp))
         return results
-    return infer
+
+    def ancestral_sample(hiddens, top_latent):
+        curr_latent = top_latent
+        for i in xrange(len(layers)):
+            curr_latent = layers[i](
+                T.concatenate([hiddens[i], curr_latent], axis=1)
+            )
+        return curr_latent
+
+    return infer, ancestral_sample
+
 
 def build(P):
     input_transform = build_conv_layer(
@@ -122,23 +137,26 @@ def build(P):
         final = dense_layer(hiddens[-1].flatten(2))
         return [first_layer] + hiddens + [final[:, :, None, None]]
 
-
     posterior_transforms, final_gaussian_transform =\
         build_layer_posteriors(P, FMAP_SIZES + [512], FMAP_SIZES + [256])
-    prior_transforms = build_layer_priors(P, [512] + REV_FMAP_SIZES, [256] + REV_FMAP_SIZES)
+
+    prior_transforms, ancestral_sample = build_layer_priors(
+        P,
+        [512] + REV_FMAP_SIZES,
+        [256] + REV_FMAP_SIZES
+    )
 
     output_transform = build_conv_layer(
         P, name="output",
-        input_size=FMAP_SIZES[0] * 2,
+        input_size=FMAP_SIZES[0],
         output_size=3 * 256,
-        rfield_size=1,
+        rfield_size=3,
         activation=lambda x: x
     )
 
-
-
-    def inpaint(X):
-        X_masked = X
+    def autoencoder(X):
+        X = T.concatenate([X, T.ones_like(X[:, :1, :, :])], axis=1)
+        X_masked = T.set_subtensor(X[:, :, 16:-16, 16:-16], 0)
         hiddens = extract(X)
         hiddens_masked = extract(X_masked)
         posteriors = posterior_transforms(hiddens)
@@ -148,16 +166,23 @@ def build(P):
         priors = prior_transforms(reverse_hiddens[:-1],
                                   reverse_posteriors[:-1])
         priors = [final_gaussian_transform(hiddens_masked[-1])] + priors
-        lin_output = output_transform(
-            T.concatenate([hiddens[0], posterior_samples[0]], axis=1)
-        )
+        lin_output = output_transform(posterior_samples[0])
 
         return (lin_output,
-                [(p[1].flatten(2), p[2].flatten(2)) for p in posteriors],
+                [(p[1].flatten(2), p[2].flatten(2)) for p in posteriors[::-1]],
                 [(p[1].flatten(2), p[2].flatten(2)) for p in priors])
 
+    def inpaint(X):
+        X = T.concatenate([X, T.ones_like(X[:, :1, :, :])], axis=1)
+        X_masked = T.set_subtensor(X[:, :, 16:-16, 16:-16], 0)
+        hiddens_masked = extract(X_masked)
+        reverse_hiddens = hiddens_masked[::-1]
+        final_latent = final_gaussian_transform(hiddens_masked[-1])[0]
+        lowest_latent = ancestral_sample(reverse_hiddens[:-1], final_latent)
+        lin_output = output_transform(lowest_latent)
+        return lin_output
 
-    return inpaint
+    return autoencoder, inpaint
 
 
 def cost(recon, X, validation=False):
@@ -174,7 +199,8 @@ def cost(recon, X, validation=False):
     per_colour_loss = per_colour_loss.reshape((batch_size, img_size_1, img_size_2, 3))
     per_pixel_loss = T.sum(per_colour_loss, axis=-1)
     per_image_loss = T.sum(per_pixel_loss, axis=(1, 2))
-    return T.mean(per_image_loss, axis=0)
+    missing_part_loss = T.sum(per_pixel_loss[:, 16:-16, 16:-16], axis=(1, 2))
+    return T.mean(per_image_loss, axis=0), T.mean(missing_part_loss, axis=0)
 
 
 def predict(recon):

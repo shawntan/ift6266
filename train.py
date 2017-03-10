@@ -13,16 +13,16 @@ if __name__ == "__main__":
     chunk_size = 512
     batch_size = 16
     P = Parameters()
-    inpaint = model.build(P)
+    autoencoder, _ = model.build(P)
 
     parameters = P.values()
     X = T.itensor4('X')
-    X_hat, posteriors, priors = inpaint(T.cast(X, 'float32') / 255.)
+    X_hat, posteriors, priors = autoencoder(T.cast(X, 'float32') / 255.)
     latent_kl = sum(T.mean(vae.kl_divergence(po_m, po_s, pr_m, pr_s), axis=0)
                     for (po_m, po_s), (pr_m, pr_s) in zip(posteriors, priors))
-    recon_loss = model.cost(X_hat, X)
+    recon_loss, missing_recon_loss = model.cost(X_hat, X)
     pprint(parameters)
-    loss = recon_loss + latent_kl
+    loss = (missing_recon_loss + latent_kl) / (32**2)
 
     print "Calculating gradient...",
     gradients = updates.clip_deltas(T.grad(loss, wrt=parameters), 5)
