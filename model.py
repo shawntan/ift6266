@@ -44,15 +44,11 @@ def build_conv_gaussian_output(P, name, input_size, output_size):
     def gaussian_params(X, snip_borders=False):
         if snip_borders:
             _, _, _, width = X.shape
-            b_width = (width // 4) - 1
-            X = X[:, :, b_width:-b_width, b_width:-b_width,]
-            mean = T.nnet.conv2d(X, W_mean, border_mode='valid') + b_mean
-            std = T.nnet.softplus(T.nnet.conv2d(X, W_std, border_mode='valid') +
-                                  b_std + np.log(np.exp(1) - 1))
-        else:
-            mean = T.nnet.conv2d(X, W_mean, border_mode='half') + b_mean
-            std = T.nnet.softplus(T.nnet.conv2d(X, W_std, border_mode='half') +
-                                  b_std + np.log(np.exp(1) - 1))
+            b_width = (width // 4)
+            X = X[:, :, b_width:-b_width, b_width:-b_width]
+        mean = T.nnet.conv2d(X, W_mean, border_mode='half') + b_mean
+        std = T.nnet.softplus(T.nnet.conv2d(X, W_std, border_mode='half') +
+                              b_std + np.float32(np.log(np.exp(1) - 1)))
         eps = U.theano_rng.normal(size=std.shape)
         latent = mean + eps * std
         return latent, mean, std
