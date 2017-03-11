@@ -84,7 +84,6 @@ def build_layer_priors(P, layers_sizes):
     )
 
     def dense_upsample(x):
-        print x
         x = x[:, :, 0, 0]
         return dense_layer(x).reshape((x.shape[0],
                                        layers_sizes[1], 2, 2))
@@ -138,7 +137,7 @@ def build(P):
         P, name="input",
         input_size=4,
         output_size=FMAP_SIZES[0],
-        rfield_size=1
+        rfield_size=3
     )
 
     stack = conv_ops.build_stack(
@@ -186,7 +185,8 @@ def build(P):
         input_size=FMAP_SIZES[0] * 2,
         output_size=3 * 256,
         rfield_size=1,
-        activation=lambda x: x
+        activation=lambda x: x,
+        weight_init=lambda x, y, z:np.zeros((x, y, z, z))
     )
 
     def output_transform(lowest_latents):
