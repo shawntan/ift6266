@@ -67,9 +67,10 @@ def build_layer_posteriors(P, layer_sizes, output_sizes):
 
     def infer(hiddens):
         return [gaussian(h, snip_borders=i < 5)
-                for i, (h, gaussian) in \
-                    enumerate(zip(hiddens, gaussian_transforms))]
+                for i, (h, gaussian) in
+                enumerate(zip(hiddens, gaussian_transforms))]
     return infer
+
 
 def build_layer_priors(P, layers_sizes):
     print layers_sizes
@@ -82,6 +83,7 @@ def build_layer_priors(P, layers_sizes):
         initial_weights=feedforward.relu_init,
         activation=T.nnet.relu
     )
+
     def dense_upsample(x):
         x = x[:, :, 0, 0]
         return dense_layer(x).reshape((x.shape[0],
@@ -120,6 +122,7 @@ def build_layer_priors(P, layers_sizes):
         return outputs
 
     return infer_priors
+
 
 def build(P):
     input_transform = build_conv_layer(
@@ -161,7 +164,6 @@ def build(P):
         output_size=latent_sizes[-1]
     )
 
-
     output_transform = build_conv_layer(
         P, name="output",
         input_size=FMAP_SIZES[0],
@@ -177,9 +179,9 @@ def build(P):
         hiddens_masked = extract(X_masked)
         posteriors = posterior_transforms(hiddens)
         posterior_samples = [p[0] for p in posteriors]
-        reverse_hiddens = hiddens_masked[::-1]
         reverse_posteriors = posterior_samples[::-1]
-        priors = [first_prior(hiddens_masked[-1])] + prior_transforms(reverse_posteriors[:-1])
+        priors = [first_prior(hiddens_masked[-1])] + \
+            prior_transforms(reverse_posteriors[:-1])
         lin_output = output_transform(posterior_samples[0])
         return (lin_output,
                 [(p[1].flatten(2), p[2].flatten(2)) for p in posteriors[::-1]],
@@ -214,15 +216,16 @@ def cost(recon, X, validation=False):
     true = true.reshape((batch_size * img_size_1 * img_size_2 * 3,))
 
     recon = recon.dimshuffle(0, 2, 3, 1)
-    recon = recon.reshape((batch_size * img_size_1 * img_size_2 * 3, channels // 3))
+    recon = recon.reshape((batch_size * img_size_1 * img_size_2 * 3,
+                           channels // 3))
     per_colour_loss = T.nnet.categorical_crossentropy(
         T.nnet.softmax(recon), true
     )
-    per_colour_loss = per_colour_loss.reshape((batch_size, img_size_1, img_size_2, 3))
+    per_colour_loss = per_colour_loss.reshape((batch_size,
+                                               img_size_1, img_size_2, 3))
     per_pixel_loss = T.sum(per_colour_loss, axis=-1)
     per_image_loss = T.sum(per_pixel_loss, axis=(1, 2))
-    missing_part_loss = T.sum(per_pixel_loss[:, 16:-16, 16:-16], axis=(1, 2))
-    return T.mean(per_image_loss, axis=0), T.mean(missing_part_loss, axis=0)
+    return T.mean(per_image_loss, axis=0)
 
 
 def predict(recon):
