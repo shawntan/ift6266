@@ -29,6 +29,7 @@ if __name__ == "__main__":
     l2 = 1e-4 * sum(T.sum(T.sqr(w)) for w in parameters
                     if w.name.startswith('W'))
     loss = (recon_loss + latent_kl + l2) / (32**2)
+    val_loss = (recon_loss + latent_kl) / (32**2)
 
     print "Calculating gradient...",
     gradients = updates.clip_deltas(T.grad(loss, wrt=parameters), 5)
@@ -39,11 +40,11 @@ if __name__ == "__main__":
     train = theano.function(
         inputs=[idx],
         outputs=[loss] + latent_kls,  # [T.sum(T.sqr(w)) for w in gradients],
-        updates=updates.adam(parameters, gradients, learning_rate=3e-4),
+        updates=updates.adam(parameters, gradients, learning_rate=1e-3),
         givens={X: chunk_X[idx * batch_size:(idx + 1) * batch_size]}
     )
 
-    test = theano.function(inputs=[X], outputs=loss)
+    test = theano.function(inputs=[X], outputs=val_loss)
     print "Done compilation."
 
     def data_stream():
