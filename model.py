@@ -85,6 +85,7 @@ def build_layer_priors(P, layers_sizes):
     )
 
     def dense_upsample(x):
+        print x
         x = x[:, :, 0, 0]
         return dense_layer(x).reshape((x.shape[0],
                                        layers_sizes[1], 2, 2))
@@ -121,7 +122,16 @@ def build_layer_priors(P, layers_sizes):
             )
         return outputs
 
-    return infer_priors
+    def ancestral_sample(top_prior):
+        curr_prior = top_prior
+        for i in xrange(len(layers_sizes) - 1):
+            curr_prior, _, _ = gaussian_outputs[i](
+                upsample[i](curr_prior),
+                snip_borders=i == 1
+            )
+        return curr_prior
+
+    return infer_priors, ancestral_sample
 
 
 def build(P):
@@ -157,7 +167,7 @@ def build(P):
     posterior_transforms =\
         build_layer_posteriors(P, FMAP_SIZES + [512], latent_sizes)
 
-    prior_transforms = build_layer_priors(P, latent_sizes[::-1])
+    prior_transforms, ancestral_sample = build_layer_priors(P, latent_sizes[::-1])
     first_prior = build_conv_gaussian_output(
         P, name="first_prior",
         input_size=512,
@@ -191,9 +201,7 @@ def build(P):
         X = T.concatenate([X, T.ones_like(X[:, :1, :, :])], axis=1)
         X_masked = T.set_subtensor(X[:, :, 16:-16, 16:-16], 0)
         hiddens_masked = extract(X_masked)
-        reverse_hiddens = hiddens_masked[::-1]
-        final_latent = final_gaussian_transform(hiddens_masked[-1])[0]
-        lowest_latent = ancestral_sample(reverse_hiddens[:-1], final_latent)
+        lowest_latent = ancestral_sample(first_prior(hiddens_masked[-1])[0])
         lin_output = output_transform(lowest_latent)
         return lin_output
 

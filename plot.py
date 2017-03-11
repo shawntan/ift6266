@@ -34,8 +34,8 @@ if __name__ == "__main__":
         chunk_temp = chunk_temp.transpose(2, 0, 3, 1)
         chunk_temp = chunk_temp / 255.
 
-        chunk_filled = fill(chunk)
-        # chunk_filled[:, :, 16:48, 16:48] = fill(chunk)[:, :, 16:-16, 16:-16]
+#        chunk_filled = fill(chunk)
+        chunk_filled[:, :, 16:48, 16:48] = fill(chunk)
 
         chunk_filled = chunk_filled.transpose(2, 0, 3, 1)
         chunk_filled = chunk_filled / 255.
