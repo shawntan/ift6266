@@ -173,13 +173,25 @@ def build(P):
         output_size=latent_sizes[-1]
     )
 
-    output_transform = build_conv_layer(
-        P, name="output",
+    output_conv = build_conv_layer(
+        P, name="output_conv",
         input_size=FMAP_SIZES[0],
-        output_size=3 * 256,
+        output_size=FMAP_SIZES[0] * 2,
         rfield_size=3,
+        activation=T.nnet.relu
+    )
+
+    output_1x1 = build_conv_layer(
+        P, name="output_1x1",
+        input_size=FMAP_SIZES[0] * 2,
+        output_size=3 * 256,
+        rfield_size=1,
         activation=lambda x: x
     )
+
+    def output_transform(lowest_latents):
+        return output_1x1(output_conv(lowest_latents))
+
 
     def autoencoder(X):
         X = T.concatenate([X, T.ones_like(X[:, :1, :, :])], axis=1)

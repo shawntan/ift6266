@@ -54,6 +54,6 @@ def build_conv_and_pool(P, name, input_size, output_size,
         pooled = pool_2d(activation(conved),
                          (pool_factor, pool_factor),
                          ignore_border=True,
-                         mode='max')
+                         mode='average_exc_pad')
         return pooled
     return convolve
