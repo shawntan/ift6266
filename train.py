@@ -26,7 +26,9 @@ if __name__ == "__main__":
         X[:, :, 16:-16, 16:-16]
     )
     pprint(parameters)
-    loss = (recon_loss + latent_kl) / (32**2)
+    l2 = 1e-4 * sum(T.sum(T.sqr(w)) for w in parameters
+                    if w.name.startswith('W'))
+    loss = (recon_loss + latent_kl + l2) / (32**2)
 
     print "Calculating gradient...",
     gradients = updates.clip_deltas(T.grad(loss, wrt=parameters), 5)
