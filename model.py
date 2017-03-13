@@ -32,10 +32,10 @@ def build_conv_layer(P, name, input_size, output_size, rfield_size,
 
 
 def build_conv_gaussian_output(P, name, input_size, output_size):
-    P["W_%s_mean" % name] = np.zeros((input_size, output_size))
+    P["W_%s_mean" % name] = 0.1 * np.random.randn(input_size, output_size)
     P["b_%s_mean" % name] = np.zeros((output_size,))
     P["W_%s_std" % name] = np.zeros((input_size, output_size))
-    P["b_%s_std" % name] = np.zeros((output_size,))
+    P["b_%s_std" % name] = -3 * np.ones((output_size,))
     W_mean = P["W_%s_mean" % name].dimshuffle(1, 0, 'x', 'x')
     b_mean = P["b_%s_mean" % name].dimshuffle('x', 0, 'x', 'x')
     W_std = P["W_%s_std" % name].dimshuffle(1, 0, 'x', 'x')
@@ -165,7 +165,8 @@ def build(P):
     posterior_transforms =\
         build_layer_posteriors(P, FMAP_SIZES + [512], latent_sizes)
 
-    prior_transforms, ancestral_sample = build_layer_priors(P, latent_sizes[::-1])
+    prior_transforms, ancestral_sample = \
+        build_layer_priors(P, latent_sizes[::-1])
     first_prior = build_conv_gaussian_output(
         P, name="first_prior",
         input_size=512,
@@ -175,23 +176,22 @@ def build(P):
     output_conv = build_conv_layer(
         P, name="output_conv",
         input_size=FMAP_SIZES[0],
-        output_size=FMAP_SIZES[0] * 2,
+        output_size=FMAP_SIZES[0],
         rfield_size=3,
         activation=T.nnet.relu
     )
 
     output_1x1 = build_conv_layer(
         P, name="output_1x1",
-        input_size=FMAP_SIZES[0] * 2,
+        input_size=FMAP_SIZES[0],
         output_size=3 * 256,
         rfield_size=1,
         activation=lambda x: x,
-        weight_init=lambda x, y, z:np.zeros((x, y, z, z))
+        weight_init=lambda x, y, z: np.zeros((x, y, z, z))
     )
 
     def output_transform(lowest_latents):
         return output_1x1(output_conv(lowest_latents))
-
 
     def autoencoder(X):
         X = T.concatenate([X, T.ones_like(X[:, :1, :, :])], axis=1)
