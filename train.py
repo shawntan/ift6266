@@ -36,10 +36,10 @@ if __name__ == "__main__":
 
     l2 = sum(T.sum(T.sqr(w)) for w in parameters)
 
-    pretrain_loss = model.cost(
+    pretrain_loss = (model.cost(
         inpaint(T.cast(X, 'float32') / np.float32(255.)),
         X[:, :, 16:-16, 16:-16]
-    ) + 1e-2 * l2
+    ) + 1e-2 * l2) / (32**2)
 
     loss = (recon_loss + train_latent_kl + 1e-3 * l2) / (32**2)
     val_loss = (recon_loss + latent_kl) / (32**2)
@@ -56,7 +56,7 @@ if __name__ == "__main__":
         updates=updates.adam(
             parameters,
             T.grad(pretrain_loss, wrt=parameters),
-            learning_rate=1e-3
+            learning_rate=1e-2
         ),
         givens={X: chunk_X[idx * batch_size:(idx + 1) * batch_size]}
     )

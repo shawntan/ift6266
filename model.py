@@ -71,13 +71,13 @@ def build_layer_posteriors(P, layer_sizes, output_sizes):
     return infer
 
 
-def build_layer_priors(P, layers_sizes):
+def build_layer_priors(P, layers_sizes, final_hidden_size):
     print layers_sizes
     upsample = [None] * (len(layers_sizes) - 1)
     gaussian_outputs = [None] * (len(layers_sizes) - 1)
     dense_layer = feedforward.build_transform(
         P, name="dense_dec",
-        input_size=layers_sizes[0],
+        input_size=layers_sizes[0] + final_hidden_size,
         output_size=2**2 * layers_sizes[1],
         initial_weights=feedforward.relu_init,
         activation=T.nnet.relu
@@ -97,7 +97,7 @@ def build_layer_priors(P, layers_sizes):
     for i in xrange(1, len(layers_sizes) - 1):
         upsample[i] = deconv_ops.build_upsample_and_conv(
             P, name="prior_hidden_%d" % i,
-            input_size=layers_sizes[i],
+            input_size=layers_sizes[i] * 2,
             output_size=layers_sizes[i+1],
             filter_size=3,
             pool_factor=2
@@ -109,25 +109,42 @@ def build_layer_priors(P, layers_sizes):
             output_size=layers_sizes[i+1]
         )
 
-    def infer_priors(posteriors):
+    def infer_priors(last_hidden, posteriors):
         assert(len(posteriors) == len(upsample))
-
+        hidden = last_hidden
         outputs = [None] * (len(layers_sizes) - 1)
         for i in xrange(len(layers_sizes) - 1):
+            hidden = upsample[i](
+                T.concatenate([
+                    hidden,
+                    posteriors[i]
+                ], axis=1)
+            )
             outputs[i] = gaussian_outputs[i](
-                upsample[i](posteriors[i]),
+                hidden,
                 snip_borders=i == 1
             )
-        return outputs
+            if i == 1:
+                hidden = hidden[:, :, 1:-1, 1:-1]
+        return outputs, hidden
 
-    def ancestral_sample(top_prior):
+    def ancestral_sample(last_hidden, top_prior):
         curr_prior = top_prior
+        hidden = last_hidden
         for i in xrange(len(layers_sizes) - 1):
+            hidden = upsample[i](
+                T.concatenate([
+                    hidden,
+                    curr_prior
+                ], axis=1)
+            )
             curr_prior, _, _ = gaussian_outputs[i](
-                upsample[i](curr_prior),
+                hidden,
                 snip_borders=i == 1
             )
-        return curr_prior
+            if i == 1:
+                hidden = hidden[:, :, 1:-1, 1:-1]
+        return curr_prior, hidden
 
     return infer_priors, ancestral_sample
 
@@ -166,7 +183,8 @@ def build(P):
         build_layer_posteriors(P, FMAP_SIZES + [512], latent_sizes)
 
     prior_transforms, ancestral_sample = \
-        build_layer_priors(P, latent_sizes[::-1])
+        build_layer_priors(P, latent_sizes[::-1], 512)
+
     first_prior = build_conv_gaussian_output(
         P, name="first_prior",
         input_size=512,
@@ -175,7 +193,7 @@ def build(P):
 
     output_conv = build_conv_layer(
         P, name="output_conv",
-        input_size=FMAP_SIZES[0],
+        input_size=FMAP_SIZES[0] * 2,
         output_size=FMAP_SIZES[0],
         rfield_size=3,
         activation=T.nnet.relu
@@ -190,8 +208,13 @@ def build(P):
         weight_init=lambda x, y, z: np.zeros((x, y, z, z))
     )
 
-    def output_transform(lowest_latents):
-        return output_1x1(output_conv(lowest_latents))
+    def output_transform(lowest_latents, last_hidden):
+        return output_1x1(output_conv(
+            T.concatenate([
+                last_hidden,
+                lowest_latents
+            ], axis=1)
+        ))
 
     def autoencoder(X):
         X = T.concatenate([X, T.ones_like(X[:, :1, :, :])], axis=1)
@@ -201,9 +224,12 @@ def build(P):
         posteriors = posterior_transforms(hiddens)
         posterior_samples = [p[0] for p in posteriors]
         reverse_posteriors = posterior_samples[::-1]
-        priors = [first_prior(hiddens_masked[-1])] + \
-            prior_transforms(reverse_posteriors[:-1])
-        lin_output = output_transform(posterior_samples[0])
+        priors, last_hidden = prior_transforms(
+            hiddens_masked[-1],
+            reverse_posteriors[:-1]
+        )
+        priors = [first_prior(hiddens_masked[-1])] + priors
+        lin_output = output_transform(posterior_samples[0], last_hidden)
         return (lin_output,
                 [(p[1].flatten(2), p[2].flatten(2)) for p in posteriors[::-1]],
                 [(p[1].flatten(2), p[2].flatten(2)) for p in priors])
@@ -212,8 +238,11 @@ def build(P):
         X = T.concatenate([X, T.ones_like(X[:, :1, :, :])], axis=1)
         X_masked = T.set_subtensor(X[:, :, 16:-16, 16:-16], 0)
         hiddens_masked = extract(X_masked)
-        lowest_latent = ancestral_sample(first_prior(hiddens_masked[-1])[0])
-        lin_output = output_transform(lowest_latent)
+        lowest_latent, last_hidden = ancestral_sample(
+            hiddens_masked[-1],
+            first_prior(hiddens_masked[-1])[0]
+        )
+        lin_output = output_transform(lowest_latent, last_hidden)
         return lin_output
 
     return autoencoder, inpaint
