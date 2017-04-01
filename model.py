@@ -10,7 +10,7 @@ FMAP_SIZES = [16, 32, 64, 128, 256, 256]
 FEATURE_MAP_SIZE = FMAP_SIZES[0]
 REV_FMAP_SIZES = FMAP_SIZES[::-1]
 FINAL_FMAP_SIZE = 64 // 2**(len(FMAP_SIZES)-1)
-
+SAMPLED_LAYERS = []
 
 def build_combine_border(P, name, input_size):
     conv_layer = conv_ops.build_conv_layer(
@@ -170,7 +170,11 @@ def build_layer_priors(P, layers_sizes, final_hidden_size):
                 hidden,
                 snip_borders=i == 1
             )
-            curr_prior = vals[0] if i == 3 else vals[1]
+
+            curr_prior = vals[
+                0 if i + 1 in SAMPLED_LAYERS else 1
+            ]
+
             if i == 1:
                 hidden = hidden[:, :, 1:-1, 1:-1]
 
@@ -272,7 +276,9 @@ def build(P):
         hiddens_masked = extract(X_masked)
         lowest_latent, last_hidden = ancestral_sample(
             hiddens_masked[::-1],
-            first_prior(hiddens_masked[-1])[1]
+            first_prior(hiddens_masked[-1])[
+                0 if 0 in SAMPLED_LAYERS else 1
+            ]
         )
         lin_output = output_transform(lowest_latent, last_hidden)
         return lin_output
