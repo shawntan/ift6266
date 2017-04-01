@@ -1,6 +1,6 @@
 import numpy as np
 import theano.tensor as T
-from conv_ops import activation, conv_weight_init
+from conv_ops import activation, conv_weight_init, build_conv_layer
 
 
 def build_stack(P, name,
@@ -17,7 +17,7 @@ def build_stack(P, name,
             P, name='%s_stack_%d' % (name, i),
             input_size=conv_filter_counts[i],
             output_size=conv_filter_counts[i+1],
-            filter_size=conv_filter_sizes[i],
+            rfield_size=conv_filter_sizes[i],
             pool_factor=conv_pool_factors[i],
             activation=activations[i]
         )
@@ -32,19 +32,18 @@ def build_stack(P, name,
 
 
 def build_upsample_and_conv(P, name, input_size, output_size,
-                            filter_size, pool_factor,
+                            rfield_size, pool_factor,
                             activation=activation):
-    P['W_%s' % name] = conv_weight_init(output_size,
-                                        input_size,
-                                        filter_size)
-    P['b_%s' % name] = np.zeros(output_size)
-    W = P['W_%s' % name]
-    b = P['b_%s' % name].dimshuffle('x', 0, 'x', 'x')
+    conv = build_conv_layer(
+        P, name,
+        input_size, output_size, rfield_size,
+        activation
+    )
 
     def upsample(X):
         upsamp_X = T.nnet.abstract_conv.bilinear_upsampling(X,
                                                             pool_factor)
-        Y = activation(T.nnet.conv2d(upsamp_X, W, border_mode='half') + b)
+        Y = conv(upsamp_X)
         return Y
     return upsample
 

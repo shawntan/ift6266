@@ -14,10 +14,6 @@ def initial_weights(input_size, output_size, factor=4):
     )
 
 
-def relu(X):
-    return T.switch(X > 0, X, 0)
-
-
 def relu_init(input_size, output_size):
     return (np.random.randn(input_size, output_size) *
             np.sqrt(2.0 / input_size)).astype(np.float32)
@@ -89,11 +85,22 @@ def build_transform(
         activation):
     P["W_%s" % name] = initial_weights(input_size, output_size)
     P["b_%s" % name] = np.zeros((output_size,), dtype=np.float32)
+    P["g_%s" % name] = np.ones((output_size,), dtype=np.float32)
     W = P["W_%s" % name]
     b = P["b_%s" % name]
+    g = P["g_%s" % name]
+
     def transform(X):
-        Z = T.dot(X, W) + b
-        output = activation(Z)
+        lin_out = T.dot(X, W)
+        norm_out = T.nnet.bn.batch_normalization(
+            inputs=lin_out,
+            gamma=g,
+            beta=b,
+            mean=T.mean(lin_out, axis=0, keepdims=True),
+            std=T.std(lin_out, axis=0, keepdims=True),
+            mode='low_mem'
+        )
+        output = activation(norm_out + b)
         if hasattr(output, "name"):
             output.name = name
         return output

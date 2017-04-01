@@ -3,39 +3,44 @@ import theano.tensor as T
 import conv_ops
 import deconv_ops
 import feedforward
-from theano.tensor.signal.pool import pool_2d
 from theano_toolkit import utils as U
 
 
-FMAP_SIZES = [8, 16, 32, 64, 128, 256]
+FMAP_SIZES = [16, 32, 64, 128, 256, 256]
 FEATURE_MAP_SIZE = FMAP_SIZES[0]
 REV_FMAP_SIZES = FMAP_SIZES[::-1]
 FINAL_FMAP_SIZE = 64 // 2**(len(FMAP_SIZES)-1)
 
 
-def build_conv_layer(P, name, input_size, output_size, rfield_size,
-                     activation=T.nnet.relu,
-                     weight_init=conv_ops.conv_weight_init):
-    P['W_conv_%s' % name] = weight_init(output_size,
-                                        input_size,
-                                        rfield_size)
-    b_ = np.zeros(output_size)
-    P['b_conv_%s' % name] = b_
-    W = P['W_conv_%s' % name]
-    b = P['b_conv_%s' % name].dimshuffle('x', 0, 'x', 'x')
+def build_combine_border(P, name, input_size):
+    conv_layer = conv_ops.build_conv_layer(
+        P, name=name,
+        input_size=input_size,
+        output_size=input_size,
+        rfield_size=3
+    )
 
-    def convolve(X, same=True):
-        border_mode = 'half' if same else 'valid'
-        return activation(
-            T.nnet.conv2d(X, W, border_mode=border_mode) + b)
-    return convolve
+    def combine_border(inner, outer, single_border=False):
+        _, _, outer_size, _ = outer.shape
+        _, _, inner_size, _ = inner.shape
+        if single_border:
+            border = outer
+        else:
+            b = (outer_size - inner_size) / 2
+            border = outer[:, :, (b-1):-(b-1), (b-1):-(b-1)]
+        augmented = T.set_subtensor(
+            border[:, :, 1:-1, 1:-1],
+            inner
+        )
+        return conv_layer(augmented, same=False)
+    return combine_border
 
 
 def build_conv_gaussian_output(P, name, input_size, output_size):
-    P["W_%s_mean" % name] = 0.1 * np.random.randn(input_size, output_size)
+    P["W_%s_mean" % name] = 0.00 * np.random.randn(input_size, output_size)
     P["b_%s_mean" % name] = np.zeros((output_size,))
     P["W_%s_std" % name] = np.zeros((input_size, output_size))
-    P["b_%s_std" % name] = -3 * np.ones((output_size,))
+    P["b_%s_std" % name] = np.zeros((output_size,))
     W_mean = P["W_%s_mean" % name].dimshuffle(1, 0, 'x', 'x')
     b_mean = P["b_%s_mean" % name].dimshuffle('x', 0, 'x', 'x')
     W_std = P["W_%s_std" % name].dimshuffle(1, 0, 'x', 'x')
@@ -75,6 +80,8 @@ def build_layer_priors(P, layers_sizes, final_hidden_size):
     print layers_sizes
     upsample = [None] * (len(layers_sizes) - 1)
     gaussian_outputs = [None] * (len(layers_sizes) - 1)
+    combine_transforms = [None] * (len(layers_sizes) - 1)
+
     dense_layer = feedforward.build_transform(
         P, name="dense_dec",
         input_size=layers_sizes[0] + final_hidden_size,
@@ -99,7 +106,7 @@ def build_layer_priors(P, layers_sizes, final_hidden_size):
             P, name="prior_hidden_%d" % i,
             input_size=layers_sizes[i] * 2,
             output_size=layers_sizes[i+1],
-            filter_size=3,
+            rfield_size=3,
             pool_factor=2
         )
 
@@ -109,9 +116,15 @@ def build_layer_priors(P, layers_sizes, final_hidden_size):
             output_size=layers_sizes[i+1]
         )
 
-    def infer_priors(last_hidden, posteriors):
+        if i >= 1:
+            combine_transforms[i] = build_combine_border(
+                P, name="include_border_%d" % i,
+                input_size=layers_sizes[i+1]
+            )
+
+    def infer_priors(hiddens, posteriors):
         assert(len(posteriors) == len(upsample))
-        hidden = last_hidden
+        hidden = hiddens[0]
         outputs = [None] * (len(layers_sizes) - 1)
         for i in xrange(len(layers_sizes) - 1):
             hidden = upsample[i](
@@ -120,17 +133,25 @@ def build_layer_priors(P, layers_sizes, final_hidden_size):
                     posteriors[i]
                 ], axis=1)
             )
+            if i > 1:
+                hidden = combine_transforms[i](
+                    hidden,
+                    hiddens[i+1],
+                    single_border=i == 1
+                )
+
             outputs[i] = gaussian_outputs[i](
                 hidden,
                 snip_borders=i == 1
             )
             if i == 1:
                 hidden = hidden[:, :, 1:-1, 1:-1]
+
         return outputs, hidden
 
-    def ancestral_sample(last_hidden, top_prior):
+    def ancestral_sample(hiddens, top_prior):
         curr_prior = top_prior
-        hidden = last_hidden
+        hidden = hiddens[0]
         for i in xrange(len(layers_sizes) - 1):
             hidden = upsample[i](
                 T.concatenate([
@@ -138,19 +159,28 @@ def build_layer_priors(P, layers_sizes, final_hidden_size):
                     curr_prior
                 ], axis=1)
             )
-            curr_prior, _, _ = gaussian_outputs[i](
+            if i > 1:
+                hidden = combine_transforms[i](
+                    hidden,
+                    hiddens[i+1],
+                    single_border=i == 1
+                )
+
+            vals = gaussian_outputs[i](
                 hidden,
                 snip_borders=i == 1
             )
+            curr_prior = vals[0] if i == 3 else vals[1]
             if i == 1:
                 hidden = hidden[:, :, 1:-1, 1:-1]
+
         return curr_prior, hidden
 
     return infer_priors, ancestral_sample
 
 
 def build(P):
-    input_transform = build_conv_layer(
+    input_transform = conv_ops.build_conv_layer(
         P, name="input",
         input_size=4,
         output_size=FMAP_SIZES[0],
@@ -191,21 +221,21 @@ def build(P):
         output_size=latent_sizes[-1]
     )
 
-    output_conv = build_conv_layer(
+    output_conv = conv_ops.build_conv_layer(
         P, name="output_conv",
         input_size=FMAP_SIZES[0] * 2,
         output_size=FMAP_SIZES[0],
         rfield_size=3,
-        activation=T.nnet.relu
     )
 
-    output_1x1 = build_conv_layer(
+    output_1x1 = conv_ops.build_conv_layer(
         P, name="output_1x1",
         input_size=FMAP_SIZES[0],
         output_size=3 * 256,
         rfield_size=1,
         activation=lambda x: x,
-        weight_init=lambda x, y, z: np.zeros((x, y, z, z))
+        weight_init=lambda x, y, z: np.zeros((x, y, z, z)),
+        batch_norm=False
     )
 
     def output_transform(lowest_latents, last_hidden):
@@ -217,15 +247,16 @@ def build(P):
         ))
 
     def autoencoder(X):
-        X = T.concatenate([X, T.ones_like(X[:, :1, :, :])], axis=1)
-        X_masked = T.set_subtensor(X[:, :, 16:-16, 16:-16], 0)
+        X = T.concatenate([X, T.zeros_like(X[:, :1, :, :])], axis=1)
+        X_masked = T.set_subtensor(X[:, :-1, 16:-16, 16:-16], 0)
+        X_masked = T.set_subtensor(X_masked[:, -1, 16:-16, 16:-16], 1)
         hiddens = extract(X)
         hiddens_masked = extract(X_masked)
         posteriors = posterior_transforms(hiddens)
         posterior_samples = [p[0] for p in posteriors]
         reverse_posteriors = posterior_samples[::-1]
         priors, last_hidden = prior_transforms(
-            hiddens_masked[-1],
+            hiddens_masked[::-1],
             reverse_posteriors[:-1]
         )
         priors = [first_prior(hiddens_masked[-1])] + priors
@@ -235,12 +266,13 @@ def build(P):
                 [(p[1].flatten(2), p[2].flatten(2)) for p in priors])
 
     def inpaint(X):
-        X = T.concatenate([X, T.ones_like(X[:, :1, :, :])], axis=1)
-        X_masked = T.set_subtensor(X[:, :, 16:-16, 16:-16], 0)
+        X = T.concatenate([X, T.zeros_like(X[:, :1, :, :])], axis=1)
+        X_masked = T.set_subtensor(X[:, :-1, 16:-16, 16:-16], 0)
+        X_masked = T.set_subtensor(X_masked[:, -1, 16:-16, 16:-16], 1)
         hiddens_masked = extract(X_masked)
         lowest_latent, last_hidden = ancestral_sample(
-            hiddens_masked[-1],
-            first_prior(hiddens_masked[-1])[0]
+            hiddens_masked[::-1],
+            first_prior(hiddens_masked[-1])[1]
         )
         lin_output = output_transform(lowest_latent, last_hidden)
         return lin_output

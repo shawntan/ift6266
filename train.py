@@ -39,32 +39,32 @@ if __name__ == "__main__":
     pretrain_loss = (model.cost(
         inpaint(T.cast(X, 'float32') / np.float32(255.)),
         X[:, :, 16:-16, 16:-16]
-    ) + 1e-2 * l2) / (32**2)
+    ) + latent_kl + 1e-2 * l2) / (32**2)
 
-    loss = (recon_loss + train_latent_kl + 1e-3 * l2) / (32**2)
+    loss = (recon_loss + latent_kl + 1e-3 * l2) / (32**2)
     val_loss = (recon_loss + latent_kl) / (32**2)
 
     print "Calculating gradient...",
-    gradients = updates.clip_deltas(T.grad(loss, wrt=parameters), 5)
+    gradients = updates.clip_deltas(T.grad(loss, wrt=parameters), 1)
     print "Done with gradients."
     chunk_X = theano.shared(np.empty((1, 3, 64, 64), dtype=np.int32))
     idx = T.iscalar('idx')
     print "Compiling functions...",
-    pretrain = theano.function(
-        inputs=[idx],
-        outputs=[recon_loss / (32 * 32)] + latent_kls,
-        updates=updates.adam(
-            parameters,
-            T.grad(pretrain_loss, wrt=parameters),
-            learning_rate=1e-2
-        ),
-        givens={X: chunk_X[idx * batch_size:(idx + 1) * batch_size]}
-    )
+    # pretrain = theano.function(
+    #     inputs=[idx],
+    #     outputs=[recon_loss / (32 * 32)] + latent_kls,
+    #     updates=updates.adam(
+    #         parameters,
+    #         T.grad(pretrain_loss, wrt=parameters),
+    #         learning_rate=1e-3
+    #     ),
+    #     givens={X: chunk_X[idx * batch_size:(idx + 1) * batch_size]}
+    # )
 
     train = theano.function(
         inputs=[idx],
         outputs=[recon_loss / (32 * 32)] + latent_kls,
-        updates=updates.adam(parameters, gradients, learning_rate=1e-3) + [
+        updates=updates.adam(parameters, gradients, learning_rate=1e-4) + [
             (beta_lin, beta_lin + 1)],
         givens={X: chunk_X[idx * batch_size:(idx + 1) * batch_size]}
     )
@@ -86,15 +86,16 @@ if __name__ == "__main__":
 
     def validation():
         stream = data_io.stream_file("data/val2014.pkl.gz")
-        stream = data_io.chunks((x[0] for x in stream), buffer_items=256)
+        stream = data_io.chunks((x[0] for x in stream), buffer_items=5)
         stream = data_io.async(stream, queue_size=3)
         total = 0
         count = 0
         for chunk in stream:
             vals = test(chunk)
             loss = vals[0]
-            total += chunk.shape[0] * loss
-            count += chunk.shape[0]
+            if chunk.shape > 1:
+                total += chunk.shape[0] * loss
+                count += chunk.shape[0]
         print ' '.join(str(v) for v in vals),
         return total / count
 
@@ -111,12 +112,9 @@ if __name__ == "__main__":
             print
         for chunk in data_stream():
             chunk_X.set_value(chunk)
-            batches = int(math.ceil(chunk.shape[0] / float(batch_size)))
+            batches = int(math.floor(chunk.shape[0] / float(batch_size)))
             for i in xrange(batches):
-                if epoch == 0:
-                    loss = pretrain(i)
-                else:
-                    loss = train(i)
+                loss = train(i)
                 print ' '.join(str(v) for v in loss)  # , show_betas()
                 # pprint({p.name: g for p, g in zip(parameters, grad_norms)})
         P.save('unval_model.pkl')

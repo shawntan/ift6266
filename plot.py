@@ -34,7 +34,8 @@ if __name__ == "__main__":
     stream = data_io.buffered_random(stream)
     stream = data_io.chunks((x[0] for x in stream), buffer_items=10)
     for chunk in stream:
-        pass
+        outputs = fill(chunk)
+        print ' '.join(str(s) for s in outputs[1:])
     fig = plt.figure(figsize=(20, 5))
     fig.subplots_adjust(left=0, bottom=0, right=1, top=1,
                         wspace=None, hspace=None)
