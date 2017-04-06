@@ -12,6 +12,7 @@ REV_FMAP_SIZES = FMAP_SIZES[::-1]
 FINAL_FMAP_SIZE = 64 // 2**(len(FMAP_SIZES)-1)
 SAMPLED_LAYERS = []
 
+
 def build_combine_border(P, name, input_size):
     conv_layer = conv_ops.build_conv_layer(
         P, name=name,
@@ -235,7 +236,7 @@ def build(P):
     output_1x1 = conv_ops.build_conv_layer(
         P, name="output_1x1",
         input_size=FMAP_SIZES[0],
-        output_size=3 * 256,
+        output_size=3,
         rfield_size=1,
         activation=lambda x: x,
         weight_init=lambda x, y, z: np.zeros((x, y, z, z)),
