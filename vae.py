@@ -41,7 +41,6 @@ def gaussian_nll(X, mean, std):
 
 
 def kl_divergence(mean, std, prior_mean, prior_std):
-
     return 0.5 * T.sum(
             2 * T.log(prior_std) - 2 * T.log(std) +
             ((T.sqr(std) + T.sqr(mean - prior_mean)) /

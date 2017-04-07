@@ -4,7 +4,7 @@ import conv_ops
 import deconv_ops
 import feedforward
 from theano_toolkit import utils as U
-
+from theano.printing import Print
 
 FMAP_SIZES = [16, 32, 64, 128, 256, 256]
 FEATURE_MAP_SIZE = FMAP_SIZES[0]
@@ -296,29 +296,25 @@ if __name__ == "__main__":
     print [p[0].eval().shape for p in priors]
 
 
+def gaussian_nll(X, mean, std):
+    return 0.5 * (
+            np.log(2 * np.pi) + 2 * T.log(std) +
+            T.sqr(X - mean) / T.sqr(std)
+        )
+
+
 def cost(recon, X, validation=False):
     batch_size, channels, img_size_1, img_size_2 = recon.shape
-
-    true = X.dimshuffle(0, 2, 3, 1)
-    true = true.reshape((batch_size * img_size_1 * img_size_2 * 3,))
-
-    recon = recon.dimshuffle(0, 2, 3, 1)
-    recon = recon.reshape((batch_size * img_size_1 * img_size_2 * 3,
-                           channels // 3))
-    per_colour_loss = T.nnet.categorical_crossentropy(
-        T.nnet.softmax(recon), true
-    )
-    per_colour_loss = per_colour_loss.reshape((batch_size,
-                                               img_size_1, img_size_2, 3))
-    per_pixel_loss = T.sum(per_colour_loss, axis=-1)
+    eps = 1e-6
+    X_ = (1 - 2 * eps) * (T.cast(X, 'float32') / 255.) + eps
+    # X_ = Print("X_")(X_)
+    logit_X = T.log(X_) - T.log(1 - X_)
+    per_colour_loss = gaussian_nll(logit_X, recon, 1)
+    per_pixel_loss = T.sum(per_colour_loss, axis=1)
     per_image_loss = T.sum(per_pixel_loss, axis=(1, 2))
     return T.mean(per_image_loss, axis=0)
 
 
 def predict(recon):
     batch_size, channels, img_size_1, img_size_2 = recon.shape
-    new_recon_shape = (batch_size,
-                       3, 256,
-                       img_size_1,
-                       img_size_2)
-    return T.argmax(recon.reshape(new_recon_shape), axis=2)
+    return T.nnet.sigmoid(recon)

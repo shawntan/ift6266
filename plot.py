@@ -45,19 +45,17 @@ if __name__ == "__main__":
 
     def plot(i):
         global chunk
-        chunk_filled = chunk.copy()
+        chunk_filled = chunk.copy() / np.float32(255.)
         chunk_temp = chunk.copy()
 
         chunk_temp = chunk_temp.transpose(2, 0, 3, 1)
-        chunk_temp = chunk_temp / 255.
+        chunk_temp = chunk_temp / np.float32(255.)
 
-#        chunk_filled = fill(chunk)
         outputs = fill(chunk)
         chunk_filled[:, :, 16:48, 16:48] = outputs[0]
         print ' '.join(str(v) for v in outputs[1:])
 
         chunk_filled = chunk_filled.transpose(2, 0, 3, 1)
-        chunk_filled = chunk_filled / 255.
         plot_data = np.concatenate((chunk_temp, chunk_filled), axis=0)
 
         plt.imshow(
