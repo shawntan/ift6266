@@ -236,7 +236,7 @@ def build(P):
     output_1x1 = conv_ops.build_conv_layer(
         P, name="output_1x1",
         input_size=FMAP_SIZES[0],
-        output_size=3,
+        output_size=3 * 256,
         rfield_size=1,
         activation=lambda x: x,
         weight_init=lambda x, y, z: np.zeros((x, y, z, z)),
@@ -305,8 +305,21 @@ def cost(recon, X, validation=False):
     recon = recon.dimshuffle(0, 2, 3, 1)
     recon = recon.reshape((batch_size * img_size_1 * img_size_2 * 3,
                            channels // 3))
+    recon_exp = T.exp(recon)
+    smoothed_recon_exp_ = 0.5 * recon_exp
+    smoothed_recon_exp_ = T.inc_subtensor(
+        smoothed_recon_exp_[:-1],
+        0.25 * recon_exp[1:]
+    )
+    smoothed_recon_exp_ = T.inc_subtensor(
+        smoothed_recon_exp_[1:],
+        0.25 * recon_exp[:-1]
+    )
+    smoothed_recon_exp = (smoothed_recon_exp_ /
+                          T.sum(smoothed_recon_exp_, axis=-1, keepdims=True))
+
     per_colour_loss = T.nnet.categorical_crossentropy(
-        T.nnet.softmax(recon), true
+        smoothed_recon_exp, true
     )
     per_colour_loss = per_colour_loss.reshape((batch_size,
                                                img_size_1, img_size_2, 3))
