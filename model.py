@@ -4,9 +4,9 @@ import conv_ops
 import deconv_ops
 import feedforward
 from theano_toolkit import utils as U
+from theano.printing import Print
 
-
-FMAP_SIZES = [16, 32, 64, 128, 256, 256]
+FMAP_SIZES = [4, 8, 16, 32, 64, 128]
 FEATURE_MAP_SIZE = FMAP_SIZES[0]
 REV_FMAP_SIZES = FMAP_SIZES[::-1]
 FINAL_FMAP_SIZE = 64 // 2**(len(FMAP_SIZES)-1)
@@ -236,7 +236,7 @@ def build(P):
     output_1x1 = conv_ops.build_conv_layer(
         P, name="output_1x1",
         input_size=FMAP_SIZES[0],
-        output_size=3 * 256,
+        output_size=3 * 2,
         rfield_size=1,
         activation=lambda x: x,
         weight_init=lambda x, y, z: np.zeros((x, y, z, z)),
@@ -303,23 +303,16 @@ def cost(recon, X, validation=False):
     true = true.reshape((batch_size * img_size_1 * img_size_2 * 3,))
 
     recon = recon.dimshuffle(0, 2, 3, 1)
-    recon = recon.reshape((batch_size * img_size_1 * img_size_2 * 3,
-                           channels // 3))
-    recon_exp = T.exp(recon)
-    smoothed_recon_exp_ = 0.5 * recon_exp
-    smoothed_recon_exp_ = T.inc_subtensor(
-        smoothed_recon_exp_[:-1],
-        0.25 * recon_exp[1:]
-    )
-    smoothed_recon_exp_ = T.inc_subtensor(
-        smoothed_recon_exp_[1:],
-        0.25 * recon_exp[:-1]
-    )
-    smoothed_recon_exp = (smoothed_recon_exp_ /
-                          T.sum(smoothed_recon_exp_, axis=-1, keepdims=True))
+    recon = recon.reshape((batch_size * img_size_1 * img_size_2 * 3, 2))
+    recon_mu = recon[:, 0].dimshuffle(0, 'x')
+    recon_sigma = T.nnet.softplus(recon[:, 1]).dimshuffle(0, 'x')
+    mid = 255/2.
+    off = (T.arange(256) - mid) / mid
+
+    z = -T.sqr(recon_mu - off) / recon_sigma
 
     per_colour_loss = T.nnet.categorical_crossentropy(
-        smoothed_recon_exp, true
+        T.nnet.softmax(z), true
     )
     per_colour_loss = per_colour_loss.reshape((batch_size,
                                                img_size_1, img_size_2, 3))
@@ -330,8 +323,7 @@ def cost(recon, X, validation=False):
 
 def predict(recon):
     batch_size, channels, img_size_1, img_size_2 = recon.shape
-    new_recon_shape = (batch_size,
-                       3, 256,
-                       img_size_1,
-                       img_size_2)
-    return T.argmax(recon.reshape(new_recon_shape), axis=2)
+    recon = recon.reshape((batch_size, 3, 2, img_size_1, img_size_2))
+    recon = T.clip(recon[:, :, 0], -1, 1) + 1
+    recon = (recon / 2.) * 255
+    return recon
